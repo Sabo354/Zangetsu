@@ -2412,7 +2412,7 @@ class _DetailViewState extends State<_DetailView>
     if (!state.episodesLoading &&
         eps.isNotEmpty &&
         (detail.sourceId.isEmpty || detail.sourceId == item.sourceId)) {
-      UnreadCounts.instance.remember(item, eps.map((e) => e.id));
+      UnreadCounts.instance.remember(item, eps);
     }
     // Manga/novel: no player, no sub/dub, no video downloads — drives the
     // Play→Read relabel and hides the download affordances below.

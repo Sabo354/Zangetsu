@@ -20,6 +20,7 @@ import '../../core/ui/global_messenger.dart';
 import '../../core/ui/anilist_custom_lists_sheet.dart';
 import '../../core/prefs/list_sort.dart';
 import '../../core/reading/unread_counts.dart';
+import '../../core/reading/library_updates.dart';
 import '../../core/models/watch_status.dart';
 import '../../core/playback/my_list.dart';
 import '../../core/playback/series_groups.dart';
@@ -52,6 +53,7 @@ import 'series_screen.dart';
 import 'cubit/tracker_list_cubit.dart';
 import 'library_filter.dart';
 import 'library_tabs.dart';
+import 'library_updates_screen.dart';
 import 'my_list_screen_tv.dart';
 import 'search_screen.dart';
 
@@ -529,6 +531,11 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  // Neuigkeiten: new chapters / episodes found by updates.
+                  if (widget.pinnedTracker == null) ...[
+                    _updatesButton(context),
+                    const SizedBox(width: 8),
+                  ],
                   _pillIcon(
                     _searching ? Icons.close_rounded : Icons.search_rounded,
                     l10n.search2,
@@ -914,6 +921,60 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     setState(() {});
   }
 
+  /// Header button for the Neuigkeiten screen, with the number of updates
+  /// that arrived since it was last opened.
+  Widget _updatesButton(BuildContext context) {
+    return ListenableBuilder(
+      listenable: LibraryUpdates.instance,
+      builder: (context, _) {
+        final unseen = LibraryUpdates.instance.unseenCount;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            _pillIcon(
+              Icons.new_releases_outlined,
+              'Neuigkeiten',
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      LibraryUpdatesScreen(startOnReading: _kind.isReading),
+                ),
+              ),
+              active: unseen > 0,
+            ),
+            if (unseen > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
+                  constraints: const BoxConstraints(minWidth: 18),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent,
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(color: AppColors.bg, width: 1.5),
+                  ),
+                  child: Text(
+                    unseen > 99 ? '99+' : '$unseen',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _pillIcon(
     IconData icon,
     String tooltip,
@@ -1225,7 +1286,11 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     final failed = result.failed == 0
         ? ''
         : ' · ${result.failed} nicht erreichbar';
-    showGlobalSnack('Bibliothek aktualisiert: $news$failed');
+    showGlobalSnack(
+      result.newItems == 0
+          ? 'Bibliothek aktualisiert: $news$failed'
+          : 'Bibliothek aktualisiert: $news$failed · siehe Neuigkeiten',
+    );
   }
 
   // ── Tracker body (refresh + load/empty/error) ─────────────────────────────

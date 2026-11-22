@@ -6,11 +6,14 @@ import 'package:watch_app/core/hive/safe_box.dart';
 
 import '../../features/home/cubit/my_list_cubit.dart';
 import '../di/injector.dart';
+import '../models/episode.dart';
 import '../models/media_item.dart';
+import '../playback/my_list.dart';
 import '../models/provider_info.dart';
 import '../playback/resume_store.dart';
 import '../repository/catalogue_repository.dart';
 import '../zmode/zmode_ids.dart';
+import 'library_updates.dart';
 import 'read_store.dart';
 
 /// Mihon-style unread counter for the library.
@@ -178,6 +181,7 @@ class UnreadCounts extends ChangeNotifier {
         return false;
       }
       _failedAt.remove(_key(item));
+      _logNew(item, episodes);
       await _box?.put(_key(item), {
         'ids': [for (final e in episodes) e.id],
         'at': DateTime.now().millisecondsSinceEpoch,
@@ -249,12 +253,17 @@ class UnreadCounts extends ChangeNotifier {
   /// Takes the chapter / episode list the detail page just loaded, so the
   /// library count matches it without another network call. Writes only
   /// when the list actually changed.
-  void remember(MediaItem item, Iterable<String> ids) {
+  void remember(MediaItem item, List<Episode> episodes) {
     if (!supports(item) || _box == null) return;
-    final list = ids.toList();
+    // Only titles in the library are counted (and logged as updates).
+    if (!sl.isRegistered<MyListStore>() || !sl<MyListStore>().contains(item)) {
+      return;
+    }
+    final list = [for (final e in episodes) e.id];
     if (list.isEmpty) return;
     final old = _cachedIds(item);
     if (old != null && listEquals(old, list) && _isFresh(item)) return;
+    _logNew(item, episodes);
     unawaited(
       _box!.put(_key(item), {
         'ids': list,
@@ -262,6 +271,19 @@ class UnreadCounts extends ChangeNotifier {
       }),
     );
     _notifySoon();
+  }
+
+  /// Writes chapters / episodes that weren't in the cached list into the
+  /// Updates history. The first list of a title is the baseline, not news.
+  void _logNew(MediaItem item, List<Episode> episodes) {
+    final before = _cachedIds(item)?.toSet();
+    if (before == null) return;
+    final added = [
+      for (final e in episodes)
+        if (!before.contains(e.id)) e,
+    ];
+    if (added.isEmpty) return;
+    LibraryUpdates.instance.record(item, added);
   }
 
   void _onProgressChanged() => _notifySoon();
