@@ -3,11 +3,14 @@ import 'dart:io';
 import '../../core/stremio/stremio_backup_cipher.dart';
 import 'stremio_backup_password_dialog.dart';
 
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/app_mode.dart';
 import '../../core/backup/backup_cloud.dart';
+import '../../core/backup/mihon_backup_import.dart';
 import '../../core/backup/backup_file.dart';
 import '../../core/backup/backup_payload.dart';
 import '../../core/backup/backup_service.dart';
@@ -182,6 +185,136 @@ class _BackupScreenState extends State<BackupScreen> {
       if (mounted) setState(() => _busy = false);
     }
     if (mounted) _showResultAfterBusy(report);
+  }
+
+  /// Takes over a Mihon / Komikku / Tachiyomi library (.tachibk): titles
+  /// whose extension is installed here, their categories and read chapters.
+  Future<void> _importMihonBackup() async {
+    if (context.read<AuthCubit>().state.user?.id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bitte zuerst anmelden – „Meine Liste“ braucht ein Konto.'),
+        ),
+      );
+      return;
+    }
+    final picked = await FilePicker.pickFile();
+    if (picked == null || !mounted) return;
+    setState(() => _busy = true);
+    MihonImportPreview? preview;
+    try {
+      final bytes = picked.path != null
+          ? await File(picked.path!).readAsBytes()
+          : await picked.readAsBytes();
+      final backup = await compute(MihonBackupImport.parse, bytes);
+      preview = MihonBackupImport.preview(backup);
+    } catch (e) {
+      debugPrint('[mihon-import] parse failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    if (preview == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Das ist keine Mihon/Komikku-Sicherung (.tachibk).',
+          ),
+        ),
+      );
+      return;
+    }
+    final p = preview;
+    final missing = p.missingSources.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Mihon/Komikku-Sicherung'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${p.importable.length} von ${p.backup.manga.length} Titeln '
+                'können übernommen werden.\n'
+                '${p.backup.categories.length} Kategorien · '
+                '${p.readChapters} gelesene Kapitel',
+              ),
+              if (missing.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Diese Erweiterungen fehlen in Zangetsu – installiere sie '
+                  'zuerst und importiere dann nochmal:',
+                  style: AppText.caption,
+                ),
+                const SizedBox(height: 4),
+                for (final m in missing.take(15))
+                  Text('• ${m.key} (${m.value})', style: AppText.caption),
+                if (missing.length > 15)
+                  Text('• … und ${missing.length - 15} weitere',
+                      style: AppText.caption),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Titel, die schon in deiner Liste sind, werden nicht doppelt '
+                'angelegt. Du kannst den Import jederzeit wiederholen.',
+                style: AppText.caption,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: p.importable.isEmpty
+                ? null
+                : () => Navigator.pop(context, true),
+            child: const Text('Importieren'),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    setState(() => _busy = true);
+    MihonImportResult? result;
+    try {
+      result = await MihonBackupImport.apply(p);
+    } catch (e) {
+      debugPrint('[mihon-import] apply failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(result == null ? 'Import abgebrochen' : 'Import fertig'),
+        content: Text(
+          result == null
+              ? 'Beim Übernehmen ist ein Fehler passiert. Was schon '
+                    'übernommen wurde, bleibt erhalten – versuch es nochmal.'
+              : '${result.added} Titel neu in deiner Liste'
+                    '${result.alreadyThere > 0 ? ', ${result.alreadyThere} waren schon da' : ''}.\n'
+                    '${result.categoriesCreated} Kategorien angelegt · '
+                    '${result.chaptersMarkedRead} Kapitel als gelesen markiert.\n\n'
+                    'Zieh in der Bibliothek nach unten, um die Kapitellisten '
+                    'zu aktualisieren.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _restoreFromFile() async {
@@ -468,6 +601,14 @@ class _BackupScreenState extends State<BackupScreen> {
                     title: context.l10n.restoreFromCloud,
                     subtitle: context.l10n.bringBackYourLatestCloudBackup,
                     onTap: _busy ? null : _restoreFromCloud,
+                  ),
+                  SettingsTile(
+                    icon: Icons.move_down_rounded,
+                    title: 'Aus Mihon / Komikku importieren',
+                    subtitle:
+                        'Bibliothek, Kategorien und gelesene Kapitel aus '
+                        'einer .tachibk-Sicherung übernehmen',
+                    onTap: _busy ? null : _importMihonBackup,
                   ),
                 ],
               ),

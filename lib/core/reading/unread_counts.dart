@@ -289,6 +289,16 @@ class UnreadCounts extends ChangeNotifier {
     _notifySoon();
   }
 
+  /// Starts a title's count from a known chapter list (e.g. a Mihon backup)
+  /// when nothing is cached yet. Marked stale, so the next update still
+  /// fetches the live list — and anything newer shows up as news.
+  void seed(MediaItem item, List<String> ids) {
+    if (!supports(item) || _box == null || ids.isEmpty) return;
+    if (_cachedIds(item) != null) return;
+    unawaited(_box!.put(_key(item), {'ids': ids, 'at': 0}));
+    _notifySoon();
+  }
+
   /// Writes chapters / episodes that weren't in the cached list into the
   /// Updates history. The first list of a title is the baseline, not news.
   void _logNew(MediaItem item, List<Episode> episodes) {
