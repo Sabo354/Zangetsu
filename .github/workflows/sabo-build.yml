@@ -77,16 +77,46 @@ jobs:
 
       # Gleiche Einstellungen wie der offizielle Nightly-Build: eigene App-ID
       # (.nightly), läuft also neben der normalen Zangetsu-App.
+      # Eigene, steigende Version pro Build, damit Update-Apps (Obtainium)
+      # jede neue Version erkennen: <App-Version>-sabo.<Buildnummer>.
+      - name: Version
+        id: ver
+        run: |
+          BASE=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')
+          NUM=${{ github.run_number }}
+          echo "name=${BASE}-sabo.${NUM}" >> "$GITHUB_OUTPUT"
+          echo "code=$((30000 + NUM))" >> "$GITHUB_OUTPUT"
+          echo "tag=sabo-v${BASE}-${NUM}" >> "$GITHUB_OUTPUT"
+
       - name: Build APK
         env:
           ZANGETSU_NO_DISCORD: "1"
           ZANGETSU_NIGHTLY: "1"
-        run: flutter build apk --debug
+        run: >
+          flutter build apk --debug
+          --build-name=${{ steps.ver.outputs.name }}
+          --build-number=${{ steps.ver.outputs.code }}
 
       - name: Rename APK
         run: cp build/app/outputs/flutter-apk/app-debug.apk zangetsu-sabo.apk
 
-      - name: Publish release
+      # Ein Release pro Version (für Obtainium) …
+      - name: Publish versioned release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Zangetsu Sabo ${{ steps.ver.outputs.name }}
+          prerelease: false
+          make_latest: true
+          body: |
+            Version ${{ steps.ver.outputs.name }} (Build ${{ steps.ver.outputs.code }})
+            Branch ${{ github.ref_name }}, Commit ${{ github.sha }}.
+            Letzte Änderung: ${{ github.event.head_commit.message }}
+          files: zangetsu-sabo.apk
+
+      # … und der feste Link bleibt für direkte Downloads.
+      - name: Update fixed download link
         uses: softprops/action-gh-release@v2
         with:
           tag_name: sabo-latest
@@ -94,6 +124,5 @@ jobs:
           prerelease: true
           make_latest: false
           body: |
-            Build von Branch ${{ github.ref_name }} (Commit ${{ github.sha }}).
-            Neu: Ungelesen-Zähler auf den Covern + Sortierung "Unread".
+            Immer der neueste Build: ${{ steps.ver.outputs.name }}.
           files: zangetsu-sabo.apk
