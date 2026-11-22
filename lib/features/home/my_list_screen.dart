@@ -640,6 +640,18 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             );
           },
         ),
+        // Own list: manual library update (new chapters / episodes).
+        if (isMyList)
+          MenuItemButton(
+            onPressed: () => unawaited(_updateLibraryNow(context)),
+            style: _libraryMenuItemStyle(),
+            leadingIcon: Icon(
+              Icons.refresh_rounded,
+              size: 18,
+              color: AppColors.textSecondary,
+            ),
+            child: const Text('Bibliothek aktualisieren'),
+          ),
         // Tracker lists only: the own list carries no watched counts,
         // so there is nothing to count down and the toggle hides itself.
         if (!isMyList)
@@ -1107,7 +1119,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
           return RefreshIndicator(
             color: AppColors.accent,
             backgroundColor: AppColors.surface,
-            onRefresh: () => sl<MyListStore>().pullFromCloud(),
+            onRefresh: () => _pullToRefreshMyList(context),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
@@ -1129,14 +1141,85 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             onRemove: (item, commit) => _animatedRemove(entry, commit),
           ),
         );
-        return RefreshIndicator(
-          color: AppColors.accent,
-          backgroundColor: AppColors.surface,
-          onRefresh: () => sl<MyListStore>().pullFromCloud(),
-          child: grid,
+        return Stack(
+          children: [
+            RefreshIndicator(
+              color: AppColors.accent,
+              backgroundColor: AppColors.surface,
+              onRefresh: () => _pullToRefreshMyList(context),
+              child: grid,
+            ),
+            // Library update progress (pull-to-refresh / menu button).
+            Positioned(
+              top: 0,
+              left: 16,
+              right: 16,
+              child: ValueListenableBuilder<double?>(
+                valueListenable: UnreadCounts.instance.updateProgress,
+                builder: (context, progress, _) => progress == null
+                    ? const SizedBox.shrink()
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: progress == 0 ? null : progress,
+                          minHeight: 3,
+                          color: AppColors.accent,
+                          backgroundColor: AppColors.surface2,
+                        ),
+                      ),
+              ),
+            ),
+          ],
         );
       },
     );
+  }
+
+  /// Pull-to-refresh on the own list: sync the saved list, then start a
+  /// library update (new chapters / episodes) in the background. The spinner
+  /// closes right away; the bar on top of the grid shows the update.
+  Future<void> _pullToRefreshMyList(BuildContext context) async {
+    try {
+      await sl<MyListStore>().pullFromCloud();
+    } catch (_) {}
+    if (!context.mounted) return;
+    unawaited(_updateLibraryNow(context));
+  }
+
+  /// Mihon-style "Update library" for the kind on screen (manga, anime, …):
+  /// re-reads every title's chapter / episode list and reports what's new.
+  Future<void> _updateLibraryNow(BuildContext context) async {
+    final counts = UnreadCounts.instance;
+    if (counts.isUpdating) {
+      showGlobalSnack('Bibliothek wird schon aktualisiert …');
+      return;
+    }
+    final kind = _kind;
+    final items = <MediaItem>[];
+    for (final e in context.read<MyListCubit>().state) {
+      if (!kind.matchesProvider(e.item.type)) continue;
+      if (e is SeriesCardEntry) {
+        items.addAll(e.memberItems);
+      } else {
+        items.add(e.item);
+      }
+    }
+    final reading = kind.isReading;
+    showGlobalSnack(
+      'Bibliothek wird aktualisiert (${items.length} Titel) …',
+    );
+    final result = await counts.updateNow(items);
+    if (result == null) return;
+    final unit = reading
+        ? (result.newItems == 1 ? 'neues Kapitel' : 'neue Kapitel')
+        : (result.newItems == 1 ? 'neue Folge' : 'neue Folgen');
+    final news = result.newItems == 0
+        ? (reading ? 'Keine neuen Kapitel' : 'Keine neuen Folgen')
+        : '${result.newItems} $unit';
+    final failed = result.failed == 0
+        ? ''
+        : ' · ${result.failed} nicht erreichbar';
+    showGlobalSnack('Bibliothek aktualisiert: $news$failed');
   }
 
   // ── Tracker body (refresh + load/empty/error) ─────────────────────────────

@@ -109,6 +109,7 @@ import '../../core/provider/provider_registry.dart';
 import '../../core/reading/chapter_nav.dart';
 import '../../core/reading/read_history.dart';
 import '../../core/reading/read_store.dart';
+import '../../core/reading/unread_counts.dart';
 import '../../core/logging/app_logger.dart';
 import '../../core/repository/catalogue_repository.dart';
 import '../../core/repository/source_actions.dart' as source_actions;
@@ -2405,6 +2406,14 @@ class _DetailViewState extends State<_DetailView>
     final selectedSeason = state.selectedSeason;
     final eps = detail.episodes;
     final store = sl<ResumeStore>();
+    // Keep the library's unread counter in step with the list on screen
+    // (also after the refresh button here). Only when progress is stored
+    // under the title's own source, which is what the counter reads.
+    if (!state.episodesLoading &&
+        eps.isNotEmpty &&
+        (detail.sourceId.isEmpty || detail.sourceId == item.sourceId)) {
+      UnreadCounts.instance.remember(item, eps.map((e) => e.id));
+    }
     // Manga/novel: no player, no sub/dub, no video downloads — drives the
     // Play→Read relabel and hides the download affordances below.
     final isReading =

@@ -166,7 +166,7 @@ class UnreadCounts extends ChangeNotifier {
     }
   }
 
-  Future<void> _fetch(MediaItem item) async {
+  Future<bool> _fetch(MediaItem item) async {
     try {
       final episodes = await sl<CatalogueRepository>()
           .episodes(item.url, sourceId: item.sourceId)
@@ -175,7 +175,7 @@ class UnreadCounts extends ChangeNotifier {
       // chapter" — keep the old list then.
       if (episodes.isEmpty && _cachedIds(item) != null) {
         _failedAt[_key(item)] = DateTime.now().millisecondsSinceEpoch;
-        return;
+        return false;
       }
       _failedAt.remove(_key(item));
       await _box?.put(_key(item), {
@@ -183,10 +183,85 @@ class UnreadCounts extends ChangeNotifier {
         'at': DateTime.now().millisecondsSinceEpoch,
       });
       _notifySoon();
+      return true;
     } catch (e) {
       _failedAt[_key(item)] = DateTime.now().millisecondsSinceEpoch;
       debugPrint('[unread] could not load list for ${item.title}: $e');
+      return false;
     }
+  }
+
+  /// Progress of a manual library update (0..1), null when none is running.
+  final ValueNotifier<double?> updateProgress = ValueNotifier(null);
+  bool get isUpdating => updateProgress.value != null;
+
+  /// Manual library update (pull-to-refresh / menu button), like Mihon's
+  /// "Update library": re-reads every given title's chapter / episode list
+  /// right now, 3 at a time.
+  ///
+  /// Returns how many titles were updated, how many new chapters/episodes
+  /// turned up, and how many sources could not be reached. Null when an
+  /// update is already running.
+  Future<({int titles, int newItems, int failed})?> updateNow(
+    Iterable<MediaItem> items,
+  ) async {
+    if (isUpdating || _box == null) return null;
+    final seen = <String>{};
+    final todo = [
+      for (final item in items)
+        if (supports(item) && seen.add(_key(item))) item,
+    ];
+    if (todo.isEmpty) return (titles: 0, newItems: 0, failed: 0);
+    updateProgress.value = 0;
+    var done = 0, newItems = 0, failed = 0;
+    var next = 0;
+    Future<void> worker() async {
+      while (next < todo.length) {
+        final item = todo[next++];
+        final key = _key(item);
+        _inFlight.add(key);
+        try {
+          final before = _cachedIds(item)?.toSet();
+          final ok = await _fetch(item);
+          if (!ok) {
+            failed++;
+          } else if (before != null) {
+            final after = _cachedIds(item) ?? const <String>[];
+            newItems += after.where((id) => !before.contains(id)).length;
+          }
+        } finally {
+          _inFlight.remove(key);
+          done++;
+          updateProgress.value = done / todo.length;
+        }
+      }
+    }
+
+    try {
+      await Future.wait([for (var i = 0; i < 3; i++) worker()]);
+    } finally {
+      updateProgress.value = null;
+      notifyListeners();
+    }
+    return (titles: todo.length, newItems: newItems, failed: failed);
+  }
+
+  /// Takes the chapter / episode list the detail page just loaded, so the
+  /// library count matches it without another network call. Writes only
+  /// when the list actually changed.
+  void remember(MediaItem item, Iterable<String> ids) {
+    if (!supports(item) || _box == null) return;
+    final list = ids.toList();
+    if (list.isEmpty) return;
+    final old = _cachedIds(item);
+    if (old != null && listEquals(old, list) && _isFresh(item)) return;
+    unawaited(
+      _box!.put(_key(item), {
+        'ids': list,
+        'at': DateTime.now().millisecondsSinceEpoch,
+      }),
+    );
+    _notifySoon();
   }
 
   void _onProgressChanged() => _notifySoon();
