@@ -65,13 +65,17 @@ class ResumeStore {
   ) async {
     if (IncognitoMode.on) return; // incognito: don't remember playback position
     final key = _key(sourceId, showId, episodeId);
+    final wasFinished = get(sourceId, showId, episodeId)?.finished ?? false;
     final manuallyWatched = _box.get(key)?['markedWatched'] == true;
     await _box.put(key, {
       'positionMs': position.inMilliseconds,
       'durationMs': duration.inMilliseconds,
       if (manuallyWatched) 'markedWatched': true,
     });
-    changes.value++;
+    // Players save every few seconds; only watched/unwatched flips matter.
+    if ((get(sourceId, showId, episodeId)?.finished ?? false) != wasFinished) {
+      changes.value++;
+    }
     // Logged because its ABSENCE is the interesting case. The flush runs from
     // the player's dispose(), so when Android kills the app straight out of
     // picture-in-picture it never happens and the position is silently lost —

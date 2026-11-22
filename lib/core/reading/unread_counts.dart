@@ -86,7 +86,23 @@ class UnreadCounts extends ChangeNotifier {
 
   /// Unread chapters (manga/novel) or unwatched episodes (anime/series) of
   /// one title. Null while the list is unknown.
+  // Counted values, reused until something changes (keeps library rebuilds
+  // cheap: no thousands of per-chapter lookups on every frame).
+  final Map<String, int?> _memo = {};
+
+  @override
+  void notifyListeners() {
+    _memo.clear();
+    super.notifyListeners();
+  }
+
   int? unreadFor(MediaItem item) {
+    final key = _key(item);
+    if (_memo.containsKey(key)) return _memo[key];
+    return _memo[key] = _countUnread(item);
+  }
+
+  int? _countUnread(MediaItem item) {
     if (!supports(item)) return null;
     final ids = _cachedIds(item);
     if (ids == null) return null;

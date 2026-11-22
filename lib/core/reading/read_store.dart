@@ -54,12 +54,19 @@ class ReadStore {
     // flag on the next autosave and the chapter quietly un-marked itself.
     final prev = _box.get(key);
     final wasMarkedRead = prev is Map && prev['read'] == true;
+    final wasFinished = finished(sourceId, showId, chapterId);
     await _box.put(key, {
       'pos': pos,
       'total': total,
       if (wasMarkedRead) 'read': true,
     });
-    changes.value++;
+    // The reader autosaves about once a second while you scroll. Only a
+    // change in read/unread matters to listeners (library unread counter),
+    // so don't wake them for every position write — that rebuilt the
+    // library mid-scroll and made the reader stutter.
+    if (finished(sourceId, showId, chapterId) != wasFinished) {
+      changes.value++;
+    }
   }
 
   ({int pos, int total})? get(
