@@ -1,3 +1,7 @@
+import '../../core/prefs/library_layout_prefs.dart';
+import '../../core/profiles/profile_source_filter.dart';
+import '../sources/profile_sources_screen.dart';
+import 'library_layout_picker.dart';
 import 'dart:async';
 import '../../core/theme/theme_controller.dart';
 import 'dart:io';
@@ -981,6 +985,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) setState(() {});
       },
     ),
+    // Which installed sources the active profile sees.
+    _SettingsEntry(
+      section: SettingsSection.sources,
+      icon: Icons.person_search_rounded,
+      title: 'Quellen für dieses Profil',
+      subtitle: ProfileSourceFilter.instance.hasHidden
+          ? 'Eigene Auswahl aktiv'
+          : 'Alle Quellen sichtbar · pro Profil ein-/ausblenden',
+      keywords: 'quellen profil sources profile hide show ausblenden',
+      onTap: () async {
+        await _push(const ProfileSourcesScreen());
+        if (mounted) setState(() {});
+      },
+    ),
     _SettingsEntry(
       section: SettingsSection.sources,
       icon: Icons.low_priority_rounded,
@@ -1126,6 +1144,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
       onTap: () => _push(const AppearanceScreen()),
+    ),
+    // Library as tabs or tiles, per profile.
+    _SettingsEntry(
+      section: SettingsSection.interface,
+      group: 'Look',
+      icon: Icons.grid_view_rounded,
+      title: 'Bibliothek-Ansicht',
+      subtitle: 'Kategorien als Reiter oder als Kacheln · pro Profil',
+      keywords: 'bibliothek ansicht kacheln reiter library tiles tabs layout',
+      trailing: _value(
+        LibraryLayoutPrefs.layout == LibraryLayout.tiles ? 'Kacheln' : 'Reiter',
+      ),
+      onTap: () async {
+        await showLibraryLayoutPicker(context);
+        if (mounted) setState(() {});
+      },
     ),
     if (!_isTv)
       _SettingsEntry(
