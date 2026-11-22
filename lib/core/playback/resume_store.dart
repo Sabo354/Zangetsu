@@ -39,6 +39,9 @@ class ResumeStore {
 
   static const String boxName = 'resume_positions';
 
+  /// Bumped on every saved position / watched mark (library unread counter).
+  static final ValueNotifier<int> changes = ValueNotifier(0);
+
   static Future<void> init() async {
     if (!Hive.isBoxOpen(boxName)) {
       await openBoxSafely<Map>(boxName);
@@ -68,6 +71,7 @@ class ResumeStore {
       'durationMs': duration.inMilliseconds,
       if (manuallyWatched) 'markedWatched': true,
     });
+    changes.value++;
     // Logged because its ABSENCE is the interesting case. The flush runs from
     // the player's dispose(), so when Android kills the app straight out of
     // picture-in-picture it never happens and the position is silently lost —
@@ -107,6 +111,7 @@ class ResumeStore {
     final key = _key(sourceId, showId, episodeId);
     if (!watched) {
       await _box.delete(key);
+      changes.value++;
       return;
     }
     final raw = _box.get(key);
@@ -121,5 +126,6 @@ class ResumeStore {
       'durationMs': (m['durationMs'] as num?)?.toInt() ?? 0,
       'markedWatched': true,
     });
+    changes.value++;
   }
 }

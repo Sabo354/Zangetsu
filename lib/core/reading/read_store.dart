@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:watch_app/core/hive/safe_box.dart';
 import 'package:watch_app/core/hive/hive_key.dart';
@@ -21,6 +22,10 @@ class ReadStore {
   String get _profileId => _currentProfileId?.call() ?? kDefaultProfileId;
 
   static const String boxName = 'read_positions';
+
+  /// Bumped on every saved position / read mark, so the library's unread
+  /// counter can refresh without polling.
+  static final ValueNotifier<int> changes = ValueNotifier(0);
 
   static Future<void> init() async {
     if (!Hive.isBoxOpen(boxName)) {
@@ -54,6 +59,7 @@ class ReadStore {
       'total': total,
       if (wasMarkedRead) 'read': true,
     });
+    changes.value++;
   }
 
   ({int pos, int total})? get(
@@ -101,6 +107,7 @@ class ReadStore {
       m['pos'] = 0;
     }
     await _box.put(key, m);
+    changes.value++;
   }
 
   bool finished(String sourceId, String showId, String chapterId) {

@@ -1,6 +1,7 @@
 import 'package:hive/hive.dart';
 
 import '../../features/home/cubit/my_list_cubit.dart';
+import '../reading/unread_counts.dart';
 
 /// How a library list is ordered.
 ///
@@ -21,6 +22,9 @@ enum ListSort {
   /// When the tracker last changed the entry. Tracker lists only — the own
   /// list keeps no such timestamp.
   updated,
+
+  /// Unread chapters / unwatched episodes (Mihon-style), see [UnreadCounts].
+  unread,
 }
 
 /// Labels, worded for the field rather than a generic ascending/descending —
@@ -30,6 +34,7 @@ String listSortLabel(ListSort s) => switch (s) {
   ListSort.added => 'Recently added',
   ListSort.score => 'Score',
   ListSort.updated => 'Last updated',
+  ListSort.unread => 'Unread',
 };
 
 String listSortDirectionLabel(ListSort s, bool desc) => switch (s) {
@@ -37,12 +42,13 @@ String listSortDirectionLabel(ListSort s, bool desc) => switch (s) {
   ListSort.added => desc ? 'Newest first' : 'Oldest first',
   ListSort.score => desc ? 'High → Low' : 'Low → High',
   ListSort.updated => desc ? 'Recent first' : 'Oldest first',
+  ListSort.unread => desc ? 'Most first' : 'Fewest first',
 };
 
 /// What a given list can honestly sort by.
 List<ListSort> optionsFor({required bool isMyList}) => isMyList
-    ? const [ListSort.added, ListSort.title]
-    : const [ListSort.score, ListSort.updated, ListSort.title];
+    ? const [ListSort.added, ListSort.title, ListSort.unread]
+    : const [ListSort.score, ListSort.updated, ListSort.title, ListSort.unread];
 
 /// The default for a list that hasn't been sorted before: your own list keeps
 /// the order you built it in, a tracker list leads with your best-rated.
@@ -83,6 +89,28 @@ List<MyListEntry> sortLibrary(List<MyListEntry> src, ListSort by, bool desc) {
         ..sort((a, b) => b.updatedAt!.compareTo(a.updatedAt!));
       final undated = out.where((e) => e.updatedAt == null).toList();
       return [...(desc ? dated : dated.reversed), ...undated];
+    case ListSort.unread:
+      // Titles whose count isn't known yet sink to the bottom either way —
+      // "not loaded" isn't "nothing unread".
+      final counts = UnreadCounts.instance;
+      final known = <(MyListEntry, int)>[];
+      final unknown = <MyListEntry>[];
+      for (final e in out) {
+        final n = counts.unreadForEntry(e);
+        if (n == null) {
+          unknown.add(e);
+        } else {
+          known.add((e, n));
+        }
+      }
+      known.sort((a, b) {
+        final byCount = desc ? b.$2.compareTo(a.$2) : a.$2.compareTo(b.$2);
+        if (byCount != 0) return byCount;
+        return a.$1.item.title.toLowerCase().compareTo(
+          b.$1.item.title.toLowerCase(),
+        );
+      });
+      return [for (final k in known) k.$1, ...unknown];
     case ListSort.score:
       // Unscored titles sink to the bottom either way — a missing score is
       // "not rated", not "rated zero", so it shouldn't lead an ascending sort.

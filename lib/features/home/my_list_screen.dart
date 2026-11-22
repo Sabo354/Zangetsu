@@ -19,6 +19,7 @@ import '../../core/ui/reveal_item.dart';
 import '../../core/ui/global_messenger.dart';
 import '../../core/ui/anilist_custom_lists_sheet.dart';
 import '../../core/prefs/list_sort.dart';
+import '../../core/reading/unread_counts.dart';
 import '../../core/models/watch_status.dart';
 import '../../core/playback/my_list.dart';
 import '../../core/playback/series_groups.dart';
@@ -1338,10 +1339,16 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       selectedId: _selectedTabId,
       onSelected: _selectTab,
       onAdd: onAdd,
-      bodyFor: (view) {
+      // Rebuilds when unread counts arrive or reading progress changes, so the
+      // badges and the "Unread" sort stay current.
+      bodyFor: (view) => ListenableBuilder(
+        listenable: UnreadCounts.instance,
+        builder: (context, _) {
         final filtered = modeEntries
             .where((e) => view.test(e) && _matchesQuery(e))
             .toList();
+        // Loads missing / stale chapter & episode lists in the background.
+        if (isMyList) UnreadCounts.instance.ensureForEntries(filtered);
         final shown = sortLibrary(
           filtered,
           _sortFor(isMyList: isMyList),
@@ -1397,7 +1404,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             );
           },
         );
-      },
+        },
+      ),
     );
   }
 
@@ -1428,7 +1436,11 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     final card = PosterCard(
       title: entry.item.title,
       logoItem: entry.item,
-      topLeftBadge: behindLabel(entry, context.l10n.comingSoonShort),
+      // Tracker lists keep their "behind" chip; the own list shows the
+      // Mihon-style unread / unwatched number.
+      topLeftBadge:
+          behindLabel(entry, context.l10n.comingSoonShort) ??
+          (isMyList ? UnreadCounts.instance.badgeFor(entry) : null),
       topRightBadge: entry is SeriesCardEntry
           ? null
           : isMyList && entry.item.sourceId == stremioSourceId
