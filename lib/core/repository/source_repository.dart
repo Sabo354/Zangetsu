@@ -1,3 +1,4 @@
+import '../profiles/profile_source_filter.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -232,6 +233,8 @@ class SourceRepository implements CatalogueRepository {
     _prefs.showNsfwAniyomi,
     _prefs.nsfwSources,
     sl.isRegistered<ProviderRegistry>() ? sl<ProviderRegistry>().revision : 0,
+    // Per-profile hidden sources (and profile switches).
+    ProfileSourceFilter.instance.revision,
   ]);
 
   List<({String id, String name})> get pickableSources {
@@ -281,6 +284,25 @@ class SourceRepository implements CatalogueRepository {
   }
 
   @override
+  /// Drops sources hidden for the active profile ([ProfileSourceFilter]).
+  List<({String id, String name, String? lang})> _profileVisible(
+    bool apply,
+    List<({String id, String name, String? lang})> all,
+  ) {
+    if (!apply) return all;
+    final filter = ProfileSourceFilter.instance;
+    if (!filter.hasHidden) return all;
+    return [
+      for (final s in all)
+        if (!filter.isHidden(s.id)) s,
+    ];
+  }
+
+  /// Every installed source with the profile filter NOT applied — for the
+  /// screen where the user picks which sources a profile sees.
+  List<({String id, String name})> get allInstalledSources =>
+      _named(_rawSources(narrowByLang: false, profileFilter: false));
+
   List<({String id, String name})> get loadedSources =>
       _named(_rawLoadedSources);
 
@@ -353,7 +375,8 @@ class SourceRepository implements CatalogueRepository {
   /// installed source missing from that list just reads as broken.
   List<({String id, String name, String? lang})> _rawSources({
     required bool narrowByLang,
-  }) => [
+    bool profileFilter = true,
+  }) => _profileVisible(profileFilter, [
     if (sl.isRegistered<StremioManager>() &&
         sl<StremioManager>().enabled.isNotEmpty)
       (id: stremioSourceId, name: 'Stremio', lang: null),
@@ -404,7 +427,7 @@ class SourceRepository implements CatalogueRepository {
             (p) =>
                 (id: p.sourceId, name: p.displayName, lang: p.source.language),
           ),
-  ];
+  ]);
 
   /// Base site URL for a source. For Mihon/Aniyomi/LNReader this turns a
   /// RELATIVE item URL into an absolute web link. CloudStream/JS items are

@@ -297,10 +297,23 @@ class MihonBackupImport {
 
   /// Adds the importable titles to My List, puts them in their categories
   /// (created as manga categories when missing) and marks read chapters.
+  /// [categories]: only titles in these category orders (plus titles with
+  /// no category when [includeUncategorized]) are taken over; null = all.
+  /// Lets one backup be split across profiles.
   static Future<MihonImportResult> apply(
     MihonImportPreview p, {
+    Set<int>? categories,
+    bool includeUncategorized = true,
     void Function(double progress)? onProgress,
   }) async {
+    final todo = [
+      for (final m in p.importable)
+        if (categories == null ||
+            (m.categoryOrders.isEmpty
+                ? includeUncategorized
+                : m.categoryOrders.any(categories.contains)))
+          m,
+    ];
     final list = sl<MyListStore>();
     final cats = sl.isRegistered<CategoryStore>() ? sl<CategoryStore>() : null;
     final read = sl<ReadStore>();
@@ -311,6 +324,7 @@ class MihonBackupImport {
     var created = 0;
     if (cats != null) {
       for (final entry in p.backup.categories.entries) {
+        if (categories != null && !categories.contains(entry.key)) continue;
         final existing = cats.all().where(
           (c) => c.name.toLowerCase() == entry.value.trim().toLowerCase(),
         );
@@ -327,8 +341,8 @@ class MihonBackupImport {
     }
 
     var added = 0, already = 0, marked = 0;
-    for (var i = 0; i < p.importable.length; i++) {
-      final m = p.importable[i];
+    for (var i = 0; i < todo.length; i++) {
+      final m = todo[i];
       final sourceId = sourceIdOf(m);
       final headers = mihon.get(sourceId)?.info.headers ?? const {};
       final item = MediaItem(
@@ -364,7 +378,7 @@ class MihonBackupImport {
       // Seed the unread counter with the backup's chapter list, so numbers
       // show right away instead of after the first library update.
       UnreadCounts.instance.seed(item, [for (final c in m.chapters) c.zangetsuId]);
-      onProgress?.call((i + 1) / p.importable.length);
+      onProgress?.call((i + 1) / todo.length);
     }
     debugPrint('[mihon-import] added=$added already=$already read=$marked');
     return MihonImportResult(

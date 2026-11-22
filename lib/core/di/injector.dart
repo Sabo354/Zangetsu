@@ -53,6 +53,7 @@ import '../reading/read_history.dart';
 import '../reading/read_store.dart';
 import '../reading/unread_counts.dart';
 import '../reading/library_updates.dart';
+import '../profiles/profile_source_filter.dart';
 import '../reading/reader_overrides.dart';
 import '../reading/reader_prefs.dart';
 import '../playback/title_prefs.dart';
@@ -335,6 +336,7 @@ Future<void> initDependencies({bool Function()? isOffline}) async {
   await ReadStore.init();
   await UnreadCounts.init();
   await LibraryUpdates.init();
+  await ProfileSourceFilter.init();
   sl.registerSingleton<ReadStore>(
     ReadStore(currentProfileId: currentProfileId),
   );

@@ -227,64 +227,109 @@ class _BackupScreenState extends State<BackupScreen> {
     final p = preview;
     final missing = p.missingSources.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    // Category choice: lets one backup be split across profiles.
+    final catEntries = p.backup.categories.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final selected = <int>{for (final c in catEntries) c.key};
+    var withUncategorized = true;
+    int countFor(Set<int> sel, bool uncategorized) => p.importable
+        .where(
+          (m) => m.categoryOrders.isEmpty
+              ? uncategorized
+              : m.categoryOrders.any(sel.contains),
+        )
+        .length;
     final go = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('Mihon/Komikku-Sicherung'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${p.importable.length} von ${p.backup.manga.length} Titeln '
-                'können übernommen werden.\n'
-                '${p.backup.categories.length} Kategorien · '
-                '${p.readChapters} gelesene Kapitel',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) {
+          final count = countFor(selected, withUncategorized);
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('Mihon/Komikku-Sicherung'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${p.importable.length} von ${p.backup.manga.length} Titeln '
+                    'können übernommen werden · ${p.readChapters} gelesene Kapitel.',
+                  ),
+                  if (catEntries.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Welche Kategorien sollen in dieses Profil?',
+                      style: AppText.caption,
+                    ),
+                    for (final c in catEntries)
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: selected.contains(c.key),
+                        title: Text(c.value.trim()),
+                        onChanged: (v) => setDialog(() {
+                          v == true ? selected.add(c.key) : selected.remove(c.key);
+                        }),
+                      ),
+                    CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: withUncategorized,
+                      title: const Text('Ohne Kategorie'),
+                      onChanged: (v) =>
+                          setDialog(() => withUncategorized = v ?? false),
+                    ),
+                  ],
+                  if (missing.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Diese Erweiterungen fehlen in Zangetsu – installiere sie '
+                      'zuerst und importiere dann nochmal:',
+                      style: AppText.caption,
+                    ),
+                    const SizedBox(height: 4),
+                    for (final m in missing.take(15))
+                      Text('• ${m.key} (${m.value})', style: AppText.caption),
+                    if (missing.length > 15)
+                      Text(
+                        '• … und ${missing.length - 15} weitere',
+                        style: AppText.caption,
+                      ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(
+                    'Titel, die schon in deiner Liste sind, werden nicht doppelt '
+                    'angelegt. Du kannst den Import jederzeit wiederholen – z. B. '
+                    'in einem anderen Profil mit anderen Kategorien.',
+                    style: AppText.caption,
+                  ),
+                ],
               ),
-              if (missing.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text(
-                  'Diese Erweiterungen fehlen in Zangetsu – installiere sie '
-                  'zuerst und importiere dann nochmal:',
-                  style: AppText.caption,
-                ),
-                const SizedBox(height: 4),
-                for (final m in missing.take(15))
-                  Text('• ${m.key} (${m.value})', style: AppText.caption),
-                if (missing.length > 15)
-                  Text('• … und ${missing.length - 15} weitere',
-                      style: AppText.caption),
-              ],
-              const SizedBox(height: 12),
-              Text(
-                'Titel, die schon in deiner Liste sind, werden nicht doppelt '
-                'angelegt. Du kannst den Import jederzeit wiederholen.',
-                style: AppText.caption,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Abbrechen'),
+              ),
+              TextButton(
+                onPressed: count == 0 ? null : () => Navigator.pop(context, true),
+                child: Text('$count Titel importieren'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            onPressed: p.importable.isEmpty
-                ? null
-                : () => Navigator.pop(context, true),
-            child: const Text('Importieren'),
-          ),
-        ],
+          );
+        },
       ),
     );
     if (go != true || !mounted) return;
     setState(() => _busy = true);
     MihonImportResult? result;
     try {
-      result = await MihonBackupImport.apply(p);
+      result = await MihonBackupImport.apply(
+        p,
+        categories: catEntries.isEmpty ? null : selected,
+        includeUncategorized: withUncategorized,
+      );
     } catch (e) {
       debugPrint('[mihon-import] apply failed: $e');
     } finally {

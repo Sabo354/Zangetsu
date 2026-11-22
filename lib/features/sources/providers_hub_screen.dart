@@ -1,3 +1,5 @@
+import '../../core/profiles/profile_source_filter.dart';
+import 'profile_sources_screen.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -189,6 +191,21 @@ class _HubPhoneView extends StatelessWidget {
             totalUpdates: totalUpdates,
           ),
           const SizedBox(height: 24),
+          // Which of the installed sources this profile sees.
+          const _SectionLabel('PROFIL'),
+          const SizedBox(height: 12),
+          _EcoRow(
+            icon: Icons.person_search_rounded,
+            title: 'Quellen für dieses Profil',
+            desc: 'Quellen pro Profil ein- oder ausblenden',
+            info: ProfileSourceFilter.instance.hasHidden
+                ? 'Eigene Auswahl aktiv'
+                : 'Alle Quellen sichtbar',
+            active: false,
+            updateCount: 0,
+            onTap: () => open(const ProfileSourcesScreen()),
+          ),
+          const SizedBox(height: 28),
           if (mangayomi != null) ...[
             const _SectionLabel('ALL'),
             const SizedBox(height: 12),
