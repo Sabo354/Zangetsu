@@ -331,20 +331,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       _restoreScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final saved = TrackerSwitchPrefs.lastTracker();
-        if (saved == null) return;
-        final cubit = context.read<TrackerListCubit>();
-        if (!cubit.state.isMyList) return;
-        Tracker? match;
-        for (final t in sl<TrackerHub>().connected) {
-          if (t.displayName == saved) {
-            match = t;
-            break;
-          }
-        }
-        if (match != null) {
-          cubit.selectTracker(match, kind: libraryKindForTracker(match, _kind));
-        }
+        if (!context.read<TrackerListCubit>().state.isMyList) return;
+        _applyRememberedList(context, _kind);
       });
     }
     return Scaffold(
@@ -596,7 +584,14 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             kind: libraryKindForTracker(tracker, _kind),
           );
         }
-        unawaited(TrackerSwitchPrefs.saveLastTracker(tracker?.displayName));
+        // Remembered per side: video (anime/movies/series) vs reading
+        // (manga/novels).
+        unawaited(
+          TrackerSwitchPrefs.saveLastTracker(
+            tracker?.displayName,
+            reading: _selectedKind(context).isReading,
+          ),
+        );
       },
     );
   }
@@ -986,6 +981,29 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     ),
   );
 
+  /// Switches to the list remembered for [kind]'s side (video or reading):
+  /// a connected tracker by name, otherwise the app's own list. Does nothing
+  /// on a screen opened for one specific tracker.
+  void _applyRememberedList(BuildContext context, ContentMode kind) {
+    if (widget.pinnedTracker != null) return;
+    final cubit = context.read<TrackerListCubit>();
+    final saved = TrackerSwitchPrefs.lastTracker(reading: kind.isReading);
+    Tracker? match;
+    if (saved != null) {
+      for (final t in sl<TrackerHub>().connected) {
+        if (t.displayName == saved) {
+          match = t;
+          break;
+        }
+      }
+    }
+    if (match == null) {
+      cubit.selectMyList();
+    } else if (cubit.state.tracker != match) {
+      cubit.selectTracker(match, kind: libraryKindForTracker(match, kind));
+    }
+  }
+
   ContentMode _selectedKind(BuildContext context) => libraryKindForTracker(
     context.read<TrackerListCubit>().state.tracker,
     widget.pinnedTracker == null
@@ -1046,6 +1064,11 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                             _kind = k;
                             _dropCategoryForeignTo(k);
                             context.read<TrackerListCubit>().selectKind(k);
+                            // Video and reading each keep their own list
+                            // (e.g. anime → AniList, manga → own list).
+                            if (selected.isReading != k.isReading) {
+                              _applyRememberedList(context, k);
+                            }
                           }),
                           child: Center(
                             child: Text(
