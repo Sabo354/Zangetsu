@@ -422,7 +422,10 @@ class _Proto {
       case 1:
         _i += 8;
       case 2:
-        _i += varint();
+        // Read the length FIRST: `_i += varint()` reads `_i` before the call
+        // advances it, which loses the length bytes and derails the parse.
+        final len = varint();
+        _i += len;
       case 5:
         _i += 4;
       default:
