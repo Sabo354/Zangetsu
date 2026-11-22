@@ -1119,6 +1119,9 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
           return RefreshIndicator(
             color: AppColors.accent,
             backgroundColor: AppColors.surface,
+            // The grid sits inside the tab pages, one scroll level down —
+            // the default (depth 0 only) never saw the pull.
+            notificationPredicate: (n) => n.metrics.axis == Axis.vertical,
             onRefresh: () => _pullToRefreshMyList(context),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -1146,6 +1149,9 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             RefreshIndicator(
               color: AppColors.accent,
               backgroundColor: AppColors.surface,
+              // The grid sits inside the tab pages, one scroll level down —
+              // the default (depth 0 only) never saw the pull.
+              notificationPredicate: (n) => n.metrics.axis == Axis.vertical,
               onRefresh: () => _pullToRefreshMyList(context),
               child: grid,
             ),
@@ -1270,6 +1276,9 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     return RefreshIndicator(
       color: AppColors.accent,
       backgroundColor: AppColors.surface,
+      // The grid sits inside the tab pages, one scroll level down —
+      // the default (depth 0 only) never saw the pull.
+      notificationPredicate: (n) => n.metrics.axis == Axis.vertical,
       onRefresh: () => context.read<TrackerListCubit>().refresh(),
       child:
           tlState.status == TrackerListStatus.ready &&

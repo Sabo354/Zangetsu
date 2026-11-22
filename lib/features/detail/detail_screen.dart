@@ -2593,7 +2593,14 @@ class _DetailViewState extends State<_DetailView>
       savedFrom: item.savedFrom,
     );
 
-    return NestedScrollView(
+    // Pull down to reload the chapter / episode list (same as the
+    // "Refresh" entry in the list's ⋮ menu).
+    return RefreshIndicator(
+      color: AppColors.accent,
+      backgroundColor: AppColors.surface,
+      notificationPredicate: (n) => n.metrics.axis == Axis.vertical,
+      onRefresh: () => cubit.refresh(),
+      child: NestedScrollView(
       controller: _scrollController,
       headerSliverBuilder: (context, _) => [
         // ── 1. Hero: backdrop + overlapping poster + status/total ──────────
@@ -3111,6 +3118,7 @@ class _DetailViewState extends State<_DetailView>
             detail: detail,
           ),
         ],
+      ),
       ),
     );
   }
