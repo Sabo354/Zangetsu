@@ -38,6 +38,24 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Immer derselbe Schlüssel, damit neue Builds als Update über die alte
+      # Version installiert werden können. Der Keystore liegt passwortgeschützt
+      # im Repo, das Passwort nur im Secret SABO_KEY_PASSWORD.
+      - name: Signing key
+        env:
+          SABO_KEY_PASSWORD: ${{ secrets.SABO_KEY_PASSWORD }}
+        run: |
+          if [ -z "$SABO_KEY_PASSWORD" ]; then
+            echo "::error::Secret SABO_KEY_PASSWORD fehlt (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+          cat > android/key.properties <<PROPS
+          storePassword=$SABO_KEY_PASSWORD
+          keyPassword=$SABO_KEY_PASSWORD
+          keyAlias=sabo
+          storeFile=sabo-signing.jks
+          PROPS
+
       # Gleiche Einstellungen wie der offizielle Nightly-Build: eigene App-ID
       # (.nightly), läuft also neben der normalen Zangetsu-App.
       - name: Build APK
