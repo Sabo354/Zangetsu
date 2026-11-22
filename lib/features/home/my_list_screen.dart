@@ -18,6 +18,7 @@ import '../../l10n/ui_strings.dart';
 import '../../core/ui/reveal_item.dart';
 import '../../core/ui/global_messenger.dart';
 import '../../core/ui/anilist_custom_lists_sheet.dart';
+import '../../core/prefs/library_layout_prefs.dart';
 import '../../core/prefs/list_sort.dart';
 import '../../core/reading/unread_counts.dart';
 import '../../core/reading/library_updates.dart';
@@ -256,6 +257,10 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     return defaultSortFor(isMyList: isMyList);
   }
 
+  void _onLayoutChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openItem(
     BuildContext context,
     MediaItem item, {
@@ -280,6 +285,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    LibraryLayoutPrefs.changes.addListener(_onLayoutChanged);
     final cats = _cats;
     if (cats != null && !sl<AppMode>().isTv) {
       _categoryCounts = LibraryCategoryCounts(cats);
@@ -293,6 +299,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    LibraryLayoutPrefs.changes.removeListener(_onLayoutChanged);
     _categoryCounts?.store.revision.removeListener(_onCategoriesChanged);
     // Screen popped mid-dissolve: the delete was already confirmed, so commit
     // instead of resurrecting the item on the way back in.
@@ -1519,6 +1526,16 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       selectedId: _selectedTabId,
       onSelected: _selectTab,
       onAdd: onAdd,
+      // Tiles (Settings → Appearance, per profile). While searching, the
+      // tab row stays so results are visible across every list.
+      tiled:
+          LibraryLayoutPrefs.layout == LibraryLayout.tiles &&
+          _query.trim().isEmpty,
+      coversFor: (view) => sortLibrary(
+        modeEntries.where(view.test).toList(),
+        ListSort.added,
+        true,
+      ).take(4).map((e) => e.item).toList(),
       // Rebuilds when unread counts arrive or reading progress changes, so the
       // badges and the "Unread" sort stay current.
       bodyFor: (view) => ListenableBuilder(

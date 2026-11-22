@@ -1,4 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+
+import '../../core/cache/app_image_cache.dart';
+import '../../core/mihon/mihon_image_provider.dart';
+import '../../core/models/media_item.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
@@ -41,7 +46,16 @@ class LibraryTabs extends StatefulWidget {
     required this.onSelected,
     required this.bodyFor,
     this.onAdd,
+    this.tiled = false,
+    this.coversFor,
   });
+
+  /// Tile layout (Settings → Appearance, per profile): one tile per list
+  /// with a cover collage instead of the tab row; tap a tile to open it.
+  final bool tiled;
+
+  /// Up to four titles of a list, for its tile's cover collage.
+  final List<MediaItem> Function(LibraryTab)? coversFor;
 
   final List<LibraryTab> tabs;
   final String selectedId;
@@ -101,8 +115,12 @@ class LibraryTabsState extends State<LibraryTabs>
     super.dispose();
   }
 
+  /// Tile layout: the list that is open, or null for the tile overview.
+  String? _openTileId;
+
   @override
   Widget build(BuildContext context) {
+    if (widget.tiled) return _buildTiled(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -169,6 +187,100 @@ class LibraryTabsState extends State<LibraryTabs>
     );
   }
 
+  Widget _buildTiled(BuildContext context) {
+    LibraryTab? open;
+    for (final t in widget.tabs) {
+      if (t.id == _openTileId) open = t;
+    }
+    if (open != null) {
+      final tab = open;
+      return PopScope(
+        // Back closes the list and returns to the tiles, not the app.
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) setState(() => _openTileId = null);
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 44,
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                    color: AppColors.textSecondary,
+                    onPressed: () => setState(() => _openTileId = null),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onLongPress: tab.onLongPress,
+                      child: Text(
+                        tab.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.body.copyWith(
+                          color: AppColors.accent,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16, left: 8),
+                    child: Text(
+                      '${tab.count}',
+                      style: AppText.caption.copyWith(
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: widget.bodyFor(tab)),
+          ],
+        ),
+      );
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 14,
+        childAspectRatio: 3 / 4,
+      ),
+      itemCount: widget.tabs.length + (widget.onAdd != null ? 1 : 0),
+      itemBuilder: (context, i) {
+        if (i == widget.tabs.length) return _addTile();
+        final t = widget.tabs[i];
+        return _LibraryListTile(
+          tab: t,
+          covers: widget.coversFor?.call(t) ?? const [],
+          onTap: () {
+            setState(() => _openTileId = t.id);
+            if (t.id != widget.selectedId) widget.onSelected(t.id);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _addTile() => GestureDetector(
+    onTap: widget.onAdd,
+    child: Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface2,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Center(
+        child: Icon(Icons.add_rounded, size: 32, color: AppColors.textSecondary),
+      ),
+    ),
+  );
+
   Widget _tab(LibraryTab t, int i) {
     // Distance from this tab, so a half-finished swipe is half-coloured.
     final at = _c.animation?.value ?? _c.index.toDouble();
@@ -198,6 +310,125 @@ class LibraryTabsState extends State<LibraryTabs>
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// One list as a big tile: 2×2 cover collage (or one cover), name and count.
+class _LibraryListTile extends StatelessWidget {
+  const _LibraryListTile({
+    required this.tab,
+    required this.covers,
+    required this.onTap,
+  });
+
+  final LibraryTab tab;
+  final List<MediaItem> covers;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(18);
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: tab.onLongPress,
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: AppColors.surface2, child: _collage()),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0.4, 1.0],
+                  colors: [Colors.transparent, Color(0xDD000000)],
+                ),
+              ),
+            ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    tab.label.trim(),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    tab.count == 1 ? '1 Titel' : '${tab.count} Titel',
+                    style: AppText.caption.copyWith(
+                      color: Colors.white.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _collage() {
+    if (covers.isEmpty) {
+      return const Center(
+        child: Icon(
+          Icons.collections_bookmark_outlined,
+          size: 36,
+          color: AppColors.textTertiary,
+        ),
+      );
+    }
+    if (covers.length < 4) return _cover(covers.first);
+    return Column(
+      children: [
+        for (final row in [covers.sublist(0, 2), covers.sublist(2, 4)])
+          Expanded(
+            child: Row(
+              children: [
+                for (final m in row) Expanded(child: _cover(m)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _cover(MediaItem m) {
+    final url = m.cover;
+    if (url == null || url.isEmpty) return const SizedBox.expand();
+    final mihonSrc = m.coverHeaders?['x-mihon-src'];
+    final ImageProvider image = mihonSrc != null && int.tryParse(mihonSrc) != null
+        // Mihon covers go through the extension (headers / Cloudflare cookie).
+        ? MihonImage(int.parse(mihonSrc), url)
+        : CachedNetworkImageProvider(
+            url,
+            headers: m.coverHeaders,
+            cacheManager: AppImageCache.manager,
+            maxWidth: 300,
+          );
+    return Image(
+      image: image,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => const SizedBox.expand(),
     );
   }
 }
