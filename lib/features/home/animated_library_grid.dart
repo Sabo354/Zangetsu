@@ -117,7 +117,9 @@ class _AnimatedLibraryGridState<T> extends State<AnimatedLibraryGrid<T>> {
           gridDelegate: widget.gridDelegate,
           padding: widget.padding,
           physics: widget.physics,
-          scrollCacheExtent: const ScrollCacheExtent.pixels(800),
+          // Build ahead ~3 screens instead of one so cards are ready before
+          // they scroll in.
+          scrollCacheExtent: const ScrollCacheExtent.pixels(2500),
           itemCount: widget.items.length,
           findChildIndexCallback: (key) {
             if (key is! ValueKey<String>) return null;
@@ -134,11 +136,44 @@ class _AnimatedLibraryGridState<T> extends State<AnimatedLibraryGrid<T>> {
               () => _placing.remove(key),
               duration: widget.slideDuration,
             );
-            return widget.itemBuilder(context, index, item, slide);
+            final cell = widget.itemBuilder(context, index, item, slide);
+            // A personal library is small enough to keep every card alive
+            // once built: scrolling back up then shows the same card again
+            // instead of rebuilding it and fading its cover in a second time
+            // (the "disappear / reappear" stutter). Huge lists keep the
+            // normal recycling so memory stays bounded.
+            return widget.items.length <= _keepAliveLimit
+                // Same key as the card, so findChildIndexCallback still finds
+                // the moved cell after a re-sort.
+                ? _KeepAliveCell(key: cell.key, child: cell)
+                : cell;
           },
         );
       },
     );
+  }
+}
+
+/// Up to this many cards stay built after scrolling past them.
+const int _keepAliveLimit = 400;
+
+class _KeepAliveCell extends StatefulWidget {
+  const _KeepAliveCell({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<_KeepAliveCell> createState() => _KeepAliveCellState();
+}
+
+class _KeepAliveCellState extends State<_KeepAliveCell>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 
