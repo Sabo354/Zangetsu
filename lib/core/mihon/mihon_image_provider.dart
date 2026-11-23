@@ -38,8 +38,8 @@ const MethodChannel _kMihonChannel = MethodChannel('zangetsu/mihon');
 class MihonImage extends ImageProvider<MihonImage> {
   const MihonImage(this.sourceId, this.url, {this.persist = true});
 
-  /// true = cover (kept while in use), false = reader page (kept up to a
-  /// size limit). Both are stored on the phone.
+  /// true = cover, stored on the phone like Mihon's cover cache.
+  /// false = reader page, never stored.
   final bool persist;
 
   /// The numeric Mihon source id as registered in `MihonSourceManager`.
@@ -61,15 +61,15 @@ class MihonImage extends ImageProvider<MihonImage> {
     MihonImage key,
     ImageDecoderCallback decode,
   ) async {
-    final store =
-        key.persist ? MihonCoverDiskCache.covers : MihonCoverDiskCache.pages;
-    Uint8List? bytes = await store.read(key.sourceId, key.url);
+    // Only covers are stored on the phone; reader pages are not.
+    final store = key.persist ? MihonCoverDiskCache.covers : null;
+    Uint8List? bytes = await store?.read(key.sourceId, key.url);
     final fromDisk = bytes != null;
     bytes ??= await _kMihonChannel.invokeMethod<Uint8List>(
       'getImage',
       {'sourceId': key.sourceId, 'url': key.url},
     );
-    if (!fromDisk && bytes != null && bytes.isNotEmpty) {
+    if (store != null && !fromDisk && bytes != null && bytes.isNotEmpty) {
       unawaited(store.write(key.sourceId, key.url, bytes));
     }
     if (bytes == null || bytes.isEmpty) {
@@ -111,9 +111,8 @@ ImageProvider mihonCoverProvider(String url, Map<String, String>? headers) {
 
 /// Mihon images stored as files in the app's own storage (not the cache
 /// folder Android empties), one file per (source, url):
-///  - covers: kept while they are being shown, dropped after 90 days unseen
-///  - pages:  the reader's pages, kept up to 2 GB (oldest go first)
-/// Files are "touched" when shown, so what you use stays.
+/// Only covers: kept while they are being shown, dropped after 90 days
+/// unseen. Files are "touched" when shown, so library covers stay.
 class MihonCoverDiskCache {
   MihonCoverDiskCache._(this._folder, this._keep, this._maxBytes);
 
@@ -121,11 +120,6 @@ class MihonCoverDiskCache {
     'mihon_covers',
     const Duration(days: 90),
     3 << 30,
-  );
-  static final MihonCoverDiskCache pages = MihonCoverDiskCache._(
-    'mihon_pages',
-    const Duration(days: 60),
-    2 << 30,
   );
 
   final String _folder;
@@ -138,6 +132,11 @@ class MihonCoverDiskCache {
       final base = await getApplicationSupportDirectory();
       final d = Directory('${base.path}/$_folder');
       if (!d.existsSync()) d.createSync(recursive: true);
+      // Build 20 also kept reader pages — not wanted, remove them.
+      final oldPages = Directory('${base.path}/mihon_pages');
+      if (oldPages.existsSync()) {
+        unawaited(oldPages.delete(recursive: true).then((_) {}, onError: (_) {}));
+      }
       unawaited(Future<void>.delayed(const Duration(seconds: 20), () => _prune(d)));
       return d;
     } catch (_) {
@@ -210,6 +209,29 @@ class MihonCoverDiskCache {
           total -= size;
         } catch (_) {}
       }
+    } catch (_) {}
+  }
+
+  Future<void> remove(int sourceId, String url) async {
+    final d = await _directory();
+    if (d == null) return;
+    try {
+      final f = File('${d.path}/${_name(sourceId, url)}');
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+  }
+
+  /// Loads the cover again from the source and replaces the stored one
+  /// (manual refresh of a title, like Mihon does).
+  static Future<void> refreshCover(int sourceId, String url) async {
+    try {
+      final bytes = await _kMihonChannel.invokeMethod<Uint8List>(
+        'getImage',
+        {'sourceId': sourceId, 'url': url},
+      );
+      if (bytes == null || bytes.isEmpty) return;
+      await covers.write(sourceId, url, bytes);
+      PaintingBinding.instance.imageCache.evict(MihonImage(sourceId, url));
     } catch (_) {}
   }
 

@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/cache/detail_disk_cache.dart';
+import '../../../core/mihon/mihon_image_provider.dart';
 import '../../../core/di/injector.dart';
 import '../../../core/provider/provider_manager.dart';
 import '../../../core/error/exceptions.dart';
@@ -331,7 +332,16 @@ class DetailCubit extends Cubit<DetailState> {
         episodesLoading: false,
       ));
       if (DetailDiskCache.supports(cacheId) && carried.episodes.isNotEmpty) {
-        unawaited(DetailDiskCache.write(cacheId!, _url, carried));
+        // Cover changed at the source → drop the old stored picture.
+        final oldCover = fromCache ? DetailDiskCache.read(cacheId!, _url)?.cover : null;
+        final srcNum = int.tryParse(cacheId!.substring('mihon:'.length));
+        if (srcNum != null &&
+            oldCover != null &&
+            oldCover.isNotEmpty &&
+            oldCover != carried.cover) {
+          unawaited(MihonCoverDiskCache.covers.remove(srcNum, oldCover));
+        }
+        unawaited(DetailDiskCache.write(cacheId, _url, carried));
       }
       _enrich(carried);
     } on CloudflareRequiredException catch (e) {
@@ -457,6 +467,16 @@ class DetailCubit extends Cubit<DetailState> {
       );
       if (DetailDiskCache.supports(_sourceId) && merged.episodes.isNotEmpty) {
         unawaited(DetailDiskCache.write(_sourceId!, _url, merged));
+        // Pull-to-refresh: fetch the cover again and replace the stored one.
+        final srcNum = int.tryParse(_sourceId!.substring('mihon:'.length));
+        final c = merged.cover;
+        if (srcNum != null && c != null && c.isNotEmpty) {
+          final oldC = previous?.cover;
+          if (oldC != null && oldC.isNotEmpty && oldC != c) {
+            unawaited(MihonCoverDiskCache.covers.remove(srcNum, oldC));
+          }
+          unawaited(MihonCoverDiskCache.refreshCover(srcNum, c));
+        }
       }
       _enrich(merged, force: true);
     } on CloudflareRequiredException catch (e) {
