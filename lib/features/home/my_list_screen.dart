@@ -22,6 +22,7 @@ import '../../core/prefs/library_layout_prefs.dart';
 import '../../core/cache/cover_prefetch.dart';
 import '../../core/cache/detail_disk_cache.dart';
 import '../../core/reading/read_store.dart';
+import '../../core/reading/reader_overrides.dart';
 import '../../core/playback/resume_store.dart';
 import '../../core/repository/catalogue_repository.dart';
 import '../reader/manga_reader_screen.dart';
@@ -728,6 +729,24 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                 : '„Alle“ ausblenden',
           ),
         ),
+        if (isMyList && _categoryFilter != null)
+          MenuItemButton(
+            onPressed: () {
+              final id = _categoryFilter;
+              final c = sl<CategoryStore>()
+                  .all()
+                  .where((c) => c.id == id)
+                  .firstOrNull;
+              if (c != null) unawaited(_pickCategoryReadMode(c));
+            },
+            style: _libraryMenuItemStyle(),
+            leadingIcon: const Icon(
+              Icons.chrome_reader_mode_outlined,
+              size: 18,
+              color: AppColors.textSecondary,
+            ),
+            child: const Text('Leserichtung dieser Kategorie'),
+          ),
         // Tracker lists only: the own list carries no watched counts,
         // so there is nothing to count down and the toggle hides itself.
         if (!isMyList)
@@ -914,6 +933,61 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
 
   /// Rename or delete a category (long-press its tab). Deleting keeps every
   /// title — it only drops the label.
+  static String _readModeLabel(String? mode) => switch (mode) {
+    'ltr' => 'Links nach rechts',
+    'rtl' => 'Rechts nach links (Manga)',
+    'vertical' => 'Von oben nach unten (Webtoon)',
+    _ => 'Standard (aus den Einstellungen)',
+  };
+
+  /// Reading direction for every title in category [c] (a title's own
+  /// setting in the reader still wins).
+  Future<void> _pickCategoryReadMode(ListCategory c) async {
+    final store = sl<ReaderOverrideStore>();
+    final current = store.categoryMode(c.id);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text('Leserichtung: ${c.name}', style: AppText.title),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'Gilt für alle Mangas in dieser Kategorie. Was du im Reader '
+                'für einen einzelnen Manga einstellst, hat Vorrang.',
+                style: AppText.caption,
+              ),
+            ),
+            for (final m in const ['', 'ltr', 'rtl', 'vertical'])
+              ListTile(
+                title: Text(_readModeLabel(m.isEmpty ? null : m)),
+                trailing: (m.isEmpty ? current == null : current == m)
+                    ? Icon(Icons.check, color: AppColors.accent)
+                    : null,
+                onTap: () => Navigator.pop(ctx, m),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    await store.setCategoryMode(c.id, picked.isEmpty ? null : picked);
+    showGlobalSnack('Leserichtung für „${c.name}“: ${_readModeLabel(picked.isEmpty ? null : picked)}');
+  }
+
   Future<void> _manageCategory(BuildContext context, ListCategory c) async {
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -941,6 +1015,18 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
               onTap: () => Navigator.pop(ctx, 'rename'),
             ),
             ListTile(
+              leading: const Icon(
+                Icons.chrome_reader_mode_outlined,
+                color: AppColors.textSecondary,
+              ),
+              title: const Text('Leserichtung'),
+              subtitle: Text(
+                _readModeLabel(sl<ReaderOverrideStore>().categoryMode(c.id)),
+                style: AppText.caption,
+              ),
+              onTap: () => Navigator.pop(ctx, 'readmode'),
+            ),
+            ListTile(
               leading: Icon(
                 Icons.delete_outline_rounded,
                 color: AppColors.accent,
@@ -958,6 +1044,11 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       ),
     );
     if (action == null || !mounted) return;
+
+    if (action == 'readmode') {
+      await _pickCategoryReadMode(c);
+      return;
+    }
 
     if (action == 'delete') {
       await sl<CategoryStore>().delete(c.id);

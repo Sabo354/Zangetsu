@@ -401,6 +401,11 @@ class CategoryStore {
   /// Category ids this title belongs to.
   Set<String> categoriesOf(MediaItem m) => _idsFor(keyOf(m));
 
+  /// Same, from the ids the reader knows (source id + show id).
+  Set<String> categoriesOfIds(String sourceId, String showId) => _idsFor(
+    profileScopedKey(_profileId, hiveKey('$sourceId::$showId')),
+  );
+
   bool isIn(MediaItem m, String categoryId) =>
       _idsFor(keyOf(m)).contains(categoryId);
 

@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/playback/category_store.dart';
 import '../../core/reading/reader_image_budget.dart';
 import '../../core/reading/crop_borders.dart';
 import '../../core/reading/reader_page_queue.dart';
@@ -1928,6 +1929,14 @@ class _MangaReaderScreenState extends State<MangaReaderScreen>
         ? sl<ReaderOverrideStore>().modeOverride(widget.sourceId, widget.showId)
         : null;
     if (override != null) return override;
+    // Sabo: direction set for the title's library category.
+    if (sl.isRegistered<ReaderOverrideStore>() &&
+        sl.isRegistered<CategoryStore>()) {
+      final cat = sl<ReaderOverrideStore>().categoryModeFor(
+        sl<CategoryStore>().categoriesOfIds(widget.sourceId, widget.showId),
+      );
+      if (cat != null) return cat;
+    }
     if (prefs.autoWebtoon && _looksLikeWebtoon == true) return 'vertical';
     return prefs.direction;
   }

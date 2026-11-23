@@ -72,6 +72,29 @@ class ReaderOverrideStore {
   Future<void> setFitOverride(String sourceId, String showId, String? value) =>
       _putField(sourceId, showId, 'fit', value);
 
+  /// Reading direction set for a whole library category ('ltr' | 'rtl' |
+  /// 'vertical'), or null when the category follows the default.
+  String? categoryMode(String categoryId) {
+    final raw = _box.get(hiveKey('cat|$categoryId'));
+    return raw is Map ? raw['mode'] as String? : null;
+  }
+
+  Future<void> setCategoryMode(String categoryId, String? value) {
+    final key = hiveKey('cat|$categoryId');
+    if (value == null) return _box.delete(key);
+    return _box.put(key, {'mode': value});
+  }
+
+  /// First direction set on any of [categoryIds] (a title can sit in more
+  /// than one category).
+  String? categoryModeFor(Iterable<String> categoryIds) {
+    for (final id in categoryIds) {
+      final m = categoryMode(id);
+      if (m != null) return m;
+    }
+    return null;
+  }
+
   /// The direction this series actually reads with: its own override if
   /// set, else the global default.
   String effectiveMode(String sourceId, String showId, ReaderPrefs prefs) =>

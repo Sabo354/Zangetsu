@@ -5,11 +5,16 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/ui/app_dialog.dart';
 import '../../core/ui/app_toast.dart';
+import '../../core/ui/global_messenger.dart';
 import '../../core/di/injector.dart';
 import '../../core/mihon/mihon_extension_service.dart';
 import '../../core/mangayomi/mangayomi_cloudflare.dart';
 import '../../core/models/home_section.dart';
 import '../../core/models/media_item.dart';
+import '../../core/models/provider_info.dart';
+import '../../core/mode/content_mode.dart';
+import '../../core/playback/category_store.dart';
+import '../../core/playback/my_list.dart';
 import '../../core/stremio/stremio_ref.dart';
 import '../../core/repository/source_actions.dart' as source_actions;
 import '../../core/provider/cf_solve_needed.dart';
@@ -126,6 +131,100 @@ class _BrowseSourceViewState extends State<_BrowseSourceView> {
   /// Show the progress bar. Set only once the lookup outlives
   /// [kLinkingIndicatorDelay].
   bool _linking = false;
+
+  // Sabo: Mihon-style selection — long-press titles, then add them all to
+  // the library / categories at once.
+  final Map<String, MediaItem> _picked = {};
+  List<MediaItem> _visible = const [];
+  String _pk(MediaItem m) => '${m.sourceId}::${m.id}';
+
+  void _togglePick(MediaItem m) => setState(() {
+    if (_picked.remove(_pk(m)) == null) _picked[_pk(m)] = m;
+  });
+
+  Future<void> _addPickedToCategories() async {
+    final items = _picked.values.toList();
+    if (items.isEmpty) return;
+    final kind = switch (items.first.type) {
+      ProviderType.manga => ContentMode.manga.name,
+      ProviderType.novel => ContentMode.novel.name,
+      _ => ContentMode.anime.name,
+    };
+    final cats = sl<CategoryStore>()
+        .all()
+        .where((c) => c.kind == null || c.kind == kind)
+        .toList()
+      ..sort((a, b) => a.position.compareTo(b.position));
+    final chosen = <String>{};
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text(
+            '${items.length} Titel hinzufügen',
+            style: AppText.title,
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: cats.isEmpty
+                ? Text(
+                    'Du hast noch keine Kategorien. Die Titel kommen in '
+                    'deine Liste (ohne Kategorie).',
+                    style: AppText.body,
+                  )
+                : ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final c in cats)
+                        CheckboxListTile(
+                          value: chosen.contains(c.id),
+                          activeColor: AppColors.accent,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(c.name),
+                          onChanged: (v) => setLocal(() {
+                            if (v == true) {
+                              chosen.add(c.id);
+                            } else {
+                              chosen.remove(c.id);
+                            }
+                          }),
+                        ),
+                    ],
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(context.l10n.cancel),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Hinzufügen'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final added = await sl<MyListStore>().addAll(items);
+    if (chosen.isNotEmpty) {
+      await sl<CategoryStore>().addMembershipsBulk({
+        for (final m in items) m: chosen,
+      });
+    }
+    if (!mounted) return;
+    setState(_picked.clear);
+    final already = items.length - added;
+    showGlobalSnack(
+      already > 0
+          ? '$added neu in deiner Liste, $already waren schon drin'
+              '${chosen.isEmpty ? '' : ' – Kategorien gesetzt'}'
+          : '$added Titel zu deiner Liste hinzugefügt',
+    );
+  }
+
   late final _controller = TextEditingController();
   final _focusNode = FocusNode();
 
@@ -464,9 +563,67 @@ class _BrowseSourceViewState extends State<_BrowseSourceView> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: _picked.isEmpty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _picked.isNotEmpty) setState(_picked.clear);
+      },
+      child: Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(
+      appBar: _picked.isNotEmpty
+          ? AppBar(
+              backgroundColor: AppColors.surface2,
+              leading: IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => setState(_picked.clear),
+              ),
+              title: Text(
+                '${_picked.length} ausgewählt',
+                style: AppText.headline,
+              ),
+              actions: [
+                IconButton(
+                  tooltip: 'Zu Kategorie hinzufügen',
+                  icon: const Icon(Icons.library_add_rounded),
+                  onPressed: _addPickedToCategories,
+                ),
+                PopupMenuButton<String>(
+                  color: AppColors.surface2,
+                  onSelected: (v) {
+                    switch (v) {
+                      case 'add':
+                        _addPickedToCategories();
+                      case 'all':
+                        setState(() {
+                          for (final m in _visible) {
+                            _picked[_pk(m)] = m;
+                          }
+                        });
+                      case 'invert':
+                        setState(() {
+                          final before = Map.of(_picked);
+                          _picked.clear();
+                          for (final m in _visible) {
+                            if (!before.containsKey(_pk(m))) _picked[_pk(m)] = m;
+                          }
+                        });
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'add',
+                      child: Text('Alle markierten in Kategorie einfügen'),
+                    ),
+                    PopupMenuItem(value: 'all', child: Text('Alle auswählen')),
+                    PopupMenuItem(
+                      value: 'invert',
+                      child: Text('Auswahl umkehren'),
+                    ),
+                  ],
+                ),
+              ],
+            )
+          : AppBar(
         backgroundColor: AppColors.bg,
         title: _searching
             ? TextField(
@@ -555,6 +712,7 @@ class _BrowseSourceViewState extends State<_BrowseSourceView> {
           Expanded(child: _body(context)),
         ],
       ),
+    ),
     );
   }
 
@@ -716,7 +874,9 @@ class _BrowseSourceViewState extends State<_BrowseSourceView> {
             );
           }
           final item = results[i];
-          return PosterCard(
+          _visible = results;
+          final picked = _picked.containsKey(_pk(item));
+          final card = PosterCard(
             title: item.title,
             logoItem: item,
             imageUrl: item.cover,
@@ -728,7 +888,33 @@ class _BrowseSourceViewState extends State<_BrowseSourceView> {
             scoreBadge: item.score,
             dubBadge: item.dubBadge,
             cellWidth: posterGridCellWidth(context),
-            onTap: () => _openDetail(context, item),
+            onTap: () => _picked.isNotEmpty
+                ? _togglePick(item)
+                : _openDetail(context, item),
+            onLongPress: () => _togglePick(item),
+          );
+          if (!picked) return card;
+          return Stack(
+            children: [
+              card,
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.28),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.accent, width: 2.5),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.check_circle_rounded,
+                      color: Colors.white,
+                      size: 34,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
