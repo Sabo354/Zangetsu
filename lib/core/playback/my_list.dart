@@ -453,6 +453,33 @@ class MyListStore {
     return name == null ? out : out.copyWith(savedFrom: name);
   }
 
+  /// Bulk add for imports (thousands of titles): one local batch write, ONE
+  /// rebuild, and the cloud sync runs afterwards in the background through
+  /// the normal pending-retry path. Adding one by one awaited a network call
+  /// and rebuilt the library per title — minutes for a big backup.
+  ///
+  /// Returns how many titles were new.
+  Future<int> addAll(List<MediaItem> items) async {
+    if (_currentUserId() == null) return 0;
+    final profileId = _profileId;
+    final rows = <String, Map>{};
+    for (final m in items) {
+      final k = _key(m, profileId);
+      if (_box.containsKey(k) || rows.containsKey(k)) continue;
+      rows[k] = _stamped(m).toJson();
+    }
+    if (rows.isEmpty) return 0;
+    await _box.putAll(rows);
+    if (Hive.isBoxOpen(syncMetaBox)) {
+      final key = _metaKey(_pendingKey, profileId);
+      final pending = pendingKeys(profileId)..addAll(rows.keys);
+      await Hive.box(syncMetaBox).put(key, pending.toList());
+    }
+    revision.value++;
+    unawaited(retryPending());
+    return rows.length;
+  }
+
   /// Remove [m] from the list (no-op if absent).
   Future<void> remove(MediaItem m) async {
     if (!_box.containsKey(_key(m))) return;

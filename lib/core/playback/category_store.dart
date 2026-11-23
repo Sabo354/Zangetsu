@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -435,6 +436,47 @@ class CategoryStore {
               profileId: _remoteProfileId(profileId),
             ),
     );
+  }
+
+  /// Bulk membership for imports: every title → the categories it joins.
+  /// One batch write and one rebuild; the cloud copies are sent afterwards
+  /// one after another instead of thousands of requests at once.
+  Future<void> addMembershipsBulk(Map<MediaItem, Set<String>> byItem) async {
+    final profileId = _profileId;
+    final writes = <String, List<String>>{};
+    final added = <(MediaItem, String)>[];
+    for (final entry in byItem.entries) {
+      final key = keyOf(entry.key);
+      final ids = _idsFor(key);
+      var changed = false;
+      for (final id in entry.value) {
+        if (ids.add(id)) {
+          changed = true;
+          added.add((entry.key, id));
+        }
+      }
+      if (changed) writes[key] = ids.toList();
+    }
+    if (writes.isEmpty) return;
+    await _box.putAll(writes);
+    revision.value++;
+    final r = _remote, uid = _uid;
+    if (r == null || uid == null) return;
+    unawaited(() async {
+      for (final (m, categoryId) in added) {
+        try {
+          await r.addAssignment({
+            'user_key': uid,
+            if (profileId != kDefaultProfileId) 'profile_id': profileId,
+            'source_id': m.sourceId,
+            'item_id': m.id,
+            'category_id': categoryId,
+          });
+        } catch (e) {
+          debugPrint('[categories] bulk cloud push failed: $e');
+        }
+      }
+    }());
   }
 
   /// Drops every assignment for a title — for when it leaves My List entirely.

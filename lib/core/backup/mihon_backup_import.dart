@@ -340,7 +340,12 @@ class MihonBackupImport {
       }
     }
 
-    var added = 0, already = 0, marked = 0;
+    // Everything below is batched: thousands of titles one by one meant a
+    // network call and a full library rebuild per title.
+    final items = <MediaItem>[];
+    final memberships = <MediaItem, Set<String>>{};
+    final readMarks = <({String sourceId, String showId, String chapterId})>[];
+    final chapterLists = <MediaItem, List<String>>{};
     for (var i = 0; i < todo.length; i++) {
       final m = todo[i];
       final sourceId = sourceIdOf(m);
@@ -358,28 +363,35 @@ class MihonBackupImport {
         genres: m.genres,
         savedAtMs: m.dateAdded > 0 ? m.dateAdded : null,
       );
-      if (list.contains(item)) {
-        already++;
-      } else {
-        await list.add(item);
-        if (list.contains(item)) added++;
-      }
-      if (cats != null) {
-        for (final order in m.categoryOrders) {
-          final id = catIds[order];
-          if (id != null) await cats.setMembership(item, id, true);
+      items.add(item);
+      final ids = {
+        for (final order in m.categoryOrders)
+          if (catIds[order] != null) catIds[order]!,
+      };
+      if (ids.isNotEmpty) memberships[item] = ids;
+      for (final c in m.chapters) {
+        if (c.read) {
+          readMarks.add((
+            sourceId: sourceId,
+            showId: item.id,
+            chapterId: c.zangetsuId,
+          ));
         }
       }
-      for (final c in m.chapters) {
-        if (!c.read) continue;
-        await read.setRead(sourceId, item.id, c.zangetsuId, read: true);
-        marked++;
-      }
-      // Seed the unread counter with the backup's chapter list, so numbers
-      // show right away instead of after the first library update.
-      UnreadCounts.instance.seed(item, [for (final c in m.chapters) c.zangetsuId]);
-      onProgress?.call((i + 1) / todo.length);
+      chapterLists[item] = [for (final c in m.chapters) c.zangetsuId];
     }
+    onProgress?.call(0.25);
+    final added = await list.addAll(items);
+    final already = items.length - added;
+    onProgress?.call(0.5);
+    if (cats != null) await cats.addMembershipsBulk(memberships);
+    onProgress?.call(0.75);
+    await read.setReadMany(readMarks);
+    final marked = readMarks.length;
+    // Seed the unread counter with the backup's chapter lists, so numbers
+    // show right away instead of after the first library update.
+    await UnreadCounts.instance.seedMany(chapterLists);
+    onProgress?.call(1);
     debugPrint('[mihon-import] added=$added already=$already read=$marked');
     return MihonImportResult(
       added: added,

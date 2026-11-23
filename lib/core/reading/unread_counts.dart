@@ -292,6 +292,21 @@ class UnreadCounts extends ChangeNotifier {
   /// Starts a title's count from a known chapter list (e.g. a Mihon backup)
   /// when nothing is cached yet. Marked stale, so the next update still
   /// fetches the live list — and anything newer shows up as news.
+  /// [seed] for many titles in one batch write (backup import).
+  Future<void> seedMany(Map<MediaItem, List<String>> lists) async {
+    final box = _box;
+    if (box == null) return;
+    final writes = <String, Map>{};
+    for (final e in lists.entries) {
+      if (!supports(e.key) || e.value.isEmpty) continue;
+      if (_cachedIds(e.key) != null) continue;
+      writes[_key(e.key)] = {'ids': e.value, 'at': 0};
+    }
+    if (writes.isEmpty) return;
+    await box.putAll(writes);
+    _notifySoon();
+  }
+
   void seed(MediaItem item, List<String> ids) {
     if (!supports(item) || _box == null || ids.isEmpty) return;
     if (_cachedIds(item) != null) return;

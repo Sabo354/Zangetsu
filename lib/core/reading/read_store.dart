@@ -117,6 +117,25 @@ class ReadStore {
     changes.value++;
   }
 
+  /// Marks many chapters read in one batch write (backup import).
+  Future<void> setReadMany(
+    Iterable<({String sourceId, String showId, String chapterId})> chapters,
+  ) async {
+    final writes = <String, Map>{};
+    for (final c in chapters) {
+      final key = _key(c.sourceId, c.showId, c.chapterId);
+      final raw = writes[key] ?? _box.get(key);
+      final m = raw == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(raw);
+      m['read'] = true;
+      writes[key] = m;
+    }
+    if (writes.isEmpty) return;
+    await _box.putAll(writes);
+    changes.value++;
+  }
+
   bool finished(String sourceId, String showId, String chapterId) {
     // The hand-set flag wins: it is the only signal for a chapter that was
     // never opened.
