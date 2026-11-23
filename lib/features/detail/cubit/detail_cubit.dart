@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/cache/detail_disk_cache.dart';
 import '../../../core/di/injector.dart';
 import '../../../core/provider/provider_manager.dart';
 import '../../../core/error/exceptions.dart';
@@ -249,6 +250,21 @@ class DetailCubit extends Cubit<DetailState> {
     emit(
       state.copyWith(status: DetailStatus.loading, clearCloudflareUrl: true),
     );
+    // Sabo: show the copy stored on the phone at once, refresh behind it.
+    final cacheId = _sourceId;
+    var fromCache = false;
+    if (DetailDiskCache.supports(cacheId)) {
+      final cached = DetailDiskCache.read(cacheId!, _url);
+      if (cached != null) {
+        fromCache = true;
+        _log('load from disk cache eps=${cached.episodes.length}');
+        emit(state.copyWith(
+          status: DetailStatus.success,
+          detail: cached,
+          episodesLoading: true,
+        ));
+      }
+    }
     try {
       final detail = await _fetchDetail(
         category: state.category,
@@ -314,12 +330,19 @@ class DetailCubit extends Cubit<DetailState> {
         detail: carried,
         episodesLoading: false,
       ));
+      if (DetailDiskCache.supports(cacheId) && carried.episodes.isNotEmpty) {
+        unawaited(DetailDiskCache.write(cacheId!, _url, carried));
+      }
       _enrich(carried);
     } on CloudflareRequiredException catch (e) {
       // The last emit in here without one: a catch is not covered by the
       // isClosed check in the try body, and the fetch that threw is exactly
       // the slow kind somebody backs out of.
       if (isClosed) return;
+      if (fromCache) {
+        emit(state.copyWith(episodesLoading: false));
+        return;
+      }
       _log('load cloudflare required ${e.url} ${sw.elapsedMilliseconds}ms', level: 'W');
       emit(state.copyWith(
         status: DetailStatus.error,
@@ -339,6 +362,11 @@ class DetailCubit extends Cubit<DetailState> {
       final limited = aniListRateLimitOf(e);
       final offline = limited == null && await isOfflineErrorConfirmed(e);
       if (isClosed) return; // that await can outlive the screen too
+      if (fromCache) {
+        // Offline / source down: the stored copy stays on screen.
+        emit(state.copyWith(episodesLoading: false));
+        return;
+      }
       _log(
         'load failed offline=$offline limited=${limited?.seconds} '
         '${sw.elapsedMilliseconds}ms: $e',
@@ -427,6 +455,9 @@ class DetailCubit extends Cubit<DetailState> {
           episodesLoading: false,
         ),
       );
+      if (DetailDiskCache.supports(_sourceId) && merged.episodes.isNotEmpty) {
+        unawaited(DetailDiskCache.write(_sourceId!, _url, merged));
+      }
       _enrich(merged, force: true);
     } on CloudflareRequiredException catch (e) {
       if (isClosed) return;

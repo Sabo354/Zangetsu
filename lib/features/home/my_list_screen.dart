@@ -19,6 +19,7 @@ import '../../core/ui/reveal_item.dart';
 import '../../core/ui/global_messenger.dart';
 import '../../core/ui/anilist_custom_lists_sheet.dart';
 import '../../core/prefs/library_layout_prefs.dart';
+import '../../core/cache/cover_prefetch.dart';
 import '../../core/prefs/list_sort.dart';
 import '../../core/reading/unread_counts.dart';
 import '../../core/reading/library_updates.dart';
@@ -286,6 +287,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     LibraryLayoutPrefs.changes.addListener(_onLayoutChanged);
+    CoverPrefetch.startOnce();
     final cats = _cats;
     if (cats != null && !sl<AppMode>().isTv) {
       _categoryCounts = LibraryCategoryCounts(cats);

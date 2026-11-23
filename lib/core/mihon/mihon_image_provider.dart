@@ -38,9 +38,8 @@ const MethodChannel _kMihonChannel = MethodChannel('zangetsu/mihon');
 class MihonImage extends ImageProvider<MihonImage> {
   const MihonImage(this.sourceId, this.url, {this.persist = true});
 
-  /// Covers are kept on the phone (like Mihon's cover cache) so they show at
-  /// once after an app restart. Reader pages pass false — those would fill
-  /// the storage.
+  /// true = cover (kept while in use), false = reader page (kept up to a
+  /// size limit). Both are stored on the phone.
   final bool persist;
 
   /// The numeric Mihon source id as registered in `MihonSourceManager`.
@@ -62,15 +61,16 @@ class MihonImage extends ImageProvider<MihonImage> {
     MihonImage key,
     ImageDecoderCallback decode,
   ) async {
-    Uint8List? bytes =
-        key.persist ? await MihonCoverDiskCache.read(key.sourceId, key.url) : null;
+    final store =
+        key.persist ? MihonCoverDiskCache.covers : MihonCoverDiskCache.pages;
+    Uint8List? bytes = await store.read(key.sourceId, key.url);
     final fromDisk = bytes != null;
     bytes ??= await _kMihonChannel.invokeMethod<Uint8List>(
       'getImage',
       {'sourceId': key.sourceId, 'url': key.url},
     );
-    if (key.persist && !fromDisk && bytes != null && bytes.isNotEmpty) {
-      unawaited(MihonCoverDiskCache.write(key.sourceId, key.url, bytes));
+    if (!fromDisk && bytes != null && bytes.isNotEmpty) {
+      unawaited(store.write(key.sourceId, key.url, bytes));
     }
     if (bytes == null || bytes.isEmpty) {
       throw Exception(
@@ -109,22 +109,36 @@ ImageProvider mihonCoverProvider(String url, Map<String, String>? headers) {
 }
 
 
-/// Mihon covers stored as files in the app's own storage (not the cache
-/// folder Android empties), one file per (source, url). Files are "touched"
-/// when shown; anything not shown for 90 days is removed at startup, so
-/// covers of titles in the library stay, browse leftovers go away.
+/// Mihon images stored as files in the app's own storage (not the cache
+/// folder Android empties), one file per (source, url):
+///  - covers: kept while they are being shown, dropped after 90 days unseen
+///  - pages:  the reader's pages, kept up to 2 GB (oldest go first)
+/// Files are "touched" when shown, so what you use stays.
 class MihonCoverDiskCache {
-  MihonCoverDiskCache._();
+  MihonCoverDiskCache._(this._folder, this._keep, this._maxBytes);
 
-  static Future<Directory?>? _dir;
-  static const Duration _keep = Duration(days: 90);
+  static final MihonCoverDiskCache covers = MihonCoverDiskCache._(
+    'mihon_covers',
+    const Duration(days: 90),
+    3 << 30,
+  );
+  static final MihonCoverDiskCache pages = MihonCoverDiskCache._(
+    'mihon_pages',
+    const Duration(days: 60),
+    2 << 30,
+  );
 
-  static Future<Directory?> _directory() => _dir ??= () async {
+  final String _folder;
+  final Duration _keep;
+  final int _maxBytes;
+  Future<Directory?>? _dir;
+
+  Future<Directory?> _directory() => _dir ??= () async {
     try {
       final base = await getApplicationSupportDirectory();
-      final d = Directory('${base.path}/mihon_covers');
+      final d = Directory('${base.path}/$_folder');
       if (!d.existsSync()) d.createSync(recursive: true);
-      unawaited(_prune(d));
+      unawaited(Future<void>.delayed(const Duration(seconds: 20), () => _prune(d)));
       return d;
     } catch (_) {
       return null;
@@ -134,7 +148,13 @@ class MihonCoverDiskCache {
   static String _name(int sourceId, String url) =>
       sha1.convert(utf8.encode('$sourceId|$url')).toString();
 
-  static Future<Uint8List?> read(int sourceId, String url) async {
+  Future<bool> has(int sourceId, String url) async {
+    final d = await _directory();
+    if (d == null) return false;
+    return File('${d.path}/${_name(sourceId, url)}').exists();
+  }
+
+  Future<Uint8List?> read(int sourceId, String url) async {
     final d = await _directory();
     if (d == null) return null;
     final f = File('${d.path}/${_name(sourceId, url)}');
@@ -152,42 +172,57 @@ class MihonCoverDiskCache {
     }
   }
 
-  static Future<void> write(int sourceId, String url, Uint8List bytes) async {
+  Future<void> write(int sourceId, String url, Uint8List bytes) async {
     final d = await _directory();
     if (d == null) return;
     final name = _name(sourceId, url);
     try {
-      // Write to a temp file first so a half-written cover is never read.
+      // Write to a temp file first so a half-written image is never read.
       final tmp = File('${d.path}/$name.tmp');
       await tmp.writeAsBytes(bytes, flush: true);
       await tmp.rename('${d.path}/$name');
     } catch (_) {}
   }
 
-  static Future<void> _prune(Directory d) async {
+  Future<void> _prune(Directory d) async {
     try {
       final cutoff = DateTime.now().subtract(_keep);
+      final kept = <(File, DateTime, int)>[];
+      var total = 0;
       await for (final e in d.list()) {
         if (e is! File) continue;
         try {
-          if (e.path.endsWith('.tmp') ||
-              (await e.lastModified()).isBefore(cutoff)) {
+          final st = await e.stat();
+          if (e.path.endsWith('.tmp') || st.modified.isBefore(cutoff)) {
             await e.delete();
+            continue;
           }
+          kept.add((e, st.modified, st.size));
+          total += st.size;
+        } catch (_) {}
+      }
+      if (total <= _maxBytes) return;
+      kept.sort((a, b) => a.$2.compareTo(b.$2));
+      for (final (f, _, size) in kept) {
+        if (total <= _maxBytes) break;
+        try {
+          await f.delete();
+          total -= size;
         } catch (_) {}
       }
     } catch (_) {}
   }
 
-  /// Removes every stored cover (used by "clear image cache").
-  static Future<void> clear() async {
-    final d = await _directory();
-    if (d == null) return;
+  /// Fetches and stores a cover that is not on the phone yet (no decoding).
+  static Future<void> prefetchCover(int sourceId, String url) async {
+    if (await covers.has(sourceId, url)) return;
     try {
-      await for (final e in d.list()) {
-        try {
-          await e.delete();
-        } catch (_) {}
+      final bytes = await _kMihonChannel.invokeMethod<Uint8List>(
+        'getImage',
+        {'sourceId': sourceId, 'url': url},
+      );
+      if (bytes != null && bytes.isNotEmpty) {
+        await covers.write(sourceId, url, bytes);
       }
     } catch (_) {}
   }

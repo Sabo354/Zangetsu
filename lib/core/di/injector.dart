@@ -51,6 +51,7 @@ import '../playback/skip_service.dart';
 import '../playback/resume_store.dart';
 import '../reading/read_history.dart';
 import '../reading/read_store.dart';
+import '../cache/detail_disk_cache.dart';
 import '../reading/unread_counts.dart';
 import '../reading/library_updates.dart';
 import '../profiles/profile_source_filter.dart';
@@ -335,6 +336,7 @@ Future<void> initDependencies({bool Function()? isOffline}) async {
   );
   await ReadStore.init();
   await UnreadCounts.init();
+  await DetailDiskCache.init();
   await LibraryUpdates.init();
   await ProfileSourceFilter.init();
   sl.registerSingleton<ReadStore>(
