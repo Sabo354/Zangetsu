@@ -136,6 +136,25 @@ class ReadStore {
     changes.value++;
   }
 
+  /// Marks many chapters unread in one batch write.
+  Future<void> setUnreadMany(
+    Iterable<({String sourceId, String showId, String chapterId})> chapters,
+  ) async {
+    final writes = <String, Map>{};
+    for (final c in chapters) {
+      final key = _key(c.sourceId, c.showId, c.chapterId);
+      final raw = writes[key] ?? _box.get(key);
+      if (raw == null) continue;
+      final m = Map<String, dynamic>.from(raw);
+      m.remove('read');
+      m['pos'] = 0;
+      writes[key] = m;
+    }
+    if (writes.isEmpty) return;
+    await _box.putAll(writes);
+    changes.value++;
+  }
+
   bool finished(String sourceId, String showId, String chapterId) {
     // The hand-set flag wins: it is the only signal for a chapter that was
     // never opened.

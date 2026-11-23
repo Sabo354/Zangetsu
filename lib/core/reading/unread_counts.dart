@@ -77,6 +77,9 @@ class UnreadCounts extends ChangeNotifier {
     return ids.map((e) => '$e').toList();
   }
 
+  /// Stored chapter / episode ids of a title (null when unknown).
+  List<String>? chapterIds(MediaItem item) => _cachedIds(item);
+
   bool _isFresh(MediaItem item) {
     final raw = _box?.get(_key(item));
     final at = (raw?['at'] as num?)?.toInt();

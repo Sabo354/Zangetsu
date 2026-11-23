@@ -10,6 +10,7 @@ import '../../core/app_mode.dart';
 import '../../core/di/injector.dart';
 import '../../core/mode/content_mode.dart';
 import '../../core/mode/content_mode_cubit.dart';
+import '../../core/models/episode.dart';
 import '../../core/models/media_item.dart';
 import '../../core/anilist/anilist_service.dart';
 import '../../core/playback/category_store.dart';
@@ -19,6 +20,12 @@ import '../../core/ui/global_messenger.dart';
 import '../../core/ui/anilist_custom_lists_sheet.dart';
 import '../../core/prefs/library_layout_prefs.dart';
 import '../../core/cache/cover_prefetch.dart';
+import '../../core/cache/detail_disk_cache.dart';
+import '../../core/reading/read_store.dart';
+import '../../core/playback/resume_store.dart';
+import '../../core/repository/catalogue_repository.dart';
+import '../reader/manga_reader_screen.dart';
+import '../reader/novel_reader_screen.dart';
 import '../../core/prefs/list_sort.dart';
 import '../../core/reading/unread_counts.dart';
 import '../../core/reading/library_updates.dart';
@@ -345,7 +352,13 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
         _applyRememberedList(context, _kind);
       });
     }
-    return Scaffold(
+    return PopScope(
+      // Back first ends the selection, like Mihon.
+      canPop: _picked.isEmpty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _picked.isNotEmpty) setState(_picked.clear);
+      },
+      child: Scaffold(
       backgroundColor: AppColors.bg,
       // bottom: false — the shell's floating dock overlays the content
       // (extendBody); a full SafeArea would clip the grid at the dock's top
@@ -357,7 +370,9 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _header(context),
+                _picked.isNotEmpty
+                    ? _selectionBar(context)
+                    : _header(context),
                 if (_searching) _searchField(context),
                 if (widget.pinnedTracker == null) _kindTabs(context),
                 Expanded(
@@ -370,6 +385,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
           },
         ),
       ),
+    ),
     );
   }
 
@@ -1583,6 +1599,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
           _sortFor(isMyList: isMyList),
           _sortDesc,
         );
+        if (isMyList) _pickable = shown;
         if (shown.isEmpty) {
           return EmptyState(
             icon: Icons.filter_list_off_rounded,
@@ -1687,7 +1704,9 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
           : '${entry.item.type == ProviderType.manga || entry.item.type == ProviderType.novel ? 'Ch' : 'EP'} ${entry.progress}',
       headers: entry.item.coverHeaders,
       cellWidth: effectiveCellW,
-      onTap: () => entry is SeriesCardEntry
+      onTap: () => isMyList && _picked.isNotEmpty
+          ? _togglePick(entry)
+          : entry is SeriesCardEntry
           ? Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SeriesScreen(
@@ -1699,8 +1718,57 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
           : onTap(entry.item),
       // Long-press opens the per-card edit sheet (own list →
       // status/remove; tracker → the tracker editor).
-      onLongPress: onMore == null ? null : () => onMore(entry),
+      // Own list: long-press selects (Mihon-style); the edit sheet is in
+      // the selection's ⋮ menu.
+      onLongPress: isMyList
+          ? () {
+              _lastOnMore = onMore;
+              _togglePick(entry);
+            }
+          : onMore == null
+          ? null
+          : () => onMore(entry),
     );
+    final picked = isMyList && _picked.containsKey(exitingKey);
+    final canContinue = isMyList &&
+        _picked.isEmpty &&
+        entry is! SeriesCardEntry &&
+        (entry.item.type == ProviderType.manga ||
+            entry.item.type == ProviderType.novel) &&
+        (UnreadCounts.instance.unreadFor(entry.item) ?? 0) > 0;
+    final Widget decorated = (picked || canContinue)
+        ? Stack(
+            children: [
+              card,
+              if (canContinue)
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: _ContinueButton(
+                    onTap: () => _continueReading(entry.item),
+                  ),
+                ),
+              if (picked)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withValues(alpha: 0.28),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.accent, width: 2.5),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.check_circle_rounded,
+                        color: Colors.white,
+                        size: 34,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          )
+        : card;
     final visual = stacked
         ? Center(
             child: FractionallySizedBox(
@@ -1708,11 +1776,11 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
               heightFactor: _stackedCoverScale,
               child: SeriesStackedCover(
                 covers: entry.memberItems,
-                child: card,
+                child: decorated,
               ),
             ),
           )
-        : card;
+        : decorated;
     return PlacementSlide(
       from: slide.from,
       duration: slide.duration,
@@ -1723,6 +1791,238 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
         child: visual,
       ),
     );
+  }
+
+  // ── Selection (Mihon-style) ────────────────────────────────────────────
+
+  final Map<String, MyListEntry> _picked = {};
+  List<MyListEntry> _pickable = const [];
+  void Function(MyListEntry)? _lastOnMore;
+
+  void _togglePick(MyListEntry entry) {
+    final k = _entryKey(entry);
+    setState(() {
+      if (_picked.remove(k) == null) _picked[k] = entry;
+    });
+  }
+
+  Widget _selectionBar(BuildContext context) {
+    final n = _picked.length;
+    final single = n == 1 && _lastOnMore != null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+      child: Container(
+        height: 56,
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.close_rounded),
+              color: AppColors.textSecondary,
+              onPressed: () => setState(_picked.clear),
+            ),
+            Expanded(
+              child: Text(
+                '$n ausgewählt',
+                style: AppText.body.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Als gelesen markieren',
+              icon: const Icon(Icons.done_all_rounded),
+              color: AppColors.textSecondary,
+              onPressed: () => _markPicked(read: true),
+            ),
+            IconButton(
+              tooltip: 'Als ungelesen markieren',
+              icon: const Icon(Icons.remove_done_rounded),
+              color: AppColors.textSecondary,
+              onPressed: () => _markPicked(read: false),
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded),
+              iconColor: AppColors.textSecondary,
+              color: AppColors.surface2,
+              onSelected: (v) {
+                switch (v) {
+                  case 'read':
+                    _markPicked(read: true);
+                  case 'unread':
+                    _markPicked(read: false);
+                  case 'all':
+                    setState(() {
+                      for (final e in _pickable) {
+                        _picked[_entryKey(e)] = e;
+                      }
+                    });
+                  case 'invert':
+                    setState(() {
+                      final before = Map.of(_picked);
+                      _picked.clear();
+                      for (final e in _pickable) {
+                        final k = _entryKey(e);
+                        if (!before.containsKey(k)) _picked[k] = e;
+                      }
+                    });
+                  case 'edit':
+                    final e = _picked.values.first;
+                    final more = _lastOnMore;
+                    setState(_picked.clear);
+                    more?.call(e);
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'read',
+                  child: Text('Alle markierten als gelesen'),
+                ),
+                const PopupMenuItem(
+                  value: 'unread',
+                  child: Text('Alle markierten als ungelesen'),
+                ),
+                const PopupMenuItem(value: 'all', child: Text('Alle auswählen')),
+                const PopupMenuItem(
+                  value: 'invert',
+                  child: Text('Auswahl umkehren'),
+                ),
+                if (single)
+                  const PopupMenuItem(value: 'edit', child: Text('Bearbeiten …')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Chapter / episode list of one title: stored copy first, else the source.
+  Future<List<Episode>?> _episodesOf(MediaItem item) async {
+    final cached = DetailDiskCache.read(item.sourceId, item.url)?.episodes;
+    if (cached != null && cached.isNotEmpty) return cached;
+    try {
+      return await sl<CatalogueRepository>()
+          .episodes(item.url, sourceId: item.sourceId)
+          .timeout(const Duration(seconds: 45));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _markPicked({required bool read}) async {
+    final items = <MediaItem>[];
+    for (final e in _picked.values) {
+      if (e is SeriesCardEntry) {
+        items.addAll(e.memberItems);
+      } else {
+        items.add(e.item);
+      }
+    }
+    setState(_picked.clear);
+    showGlobalSnack(
+      read
+          ? '${items.length} Titel werden als gelesen markiert …'
+          : '${items.length} Titel werden als ungelesen markiert …',
+    );
+    var failed = 0;
+    final readStore = sl<ReadStore>();
+    final resume = sl<ResumeStore>();
+    final batch = <({String sourceId, String showId, String chapterId})>[];
+    for (final item in items) {
+      var ids = UnreadCounts.instance.chapterIds(item);
+      if (ids == null) {
+        final eps = await _episodesOf(item);
+        if (eps == null) {
+          failed++;
+          continue;
+        }
+        UnreadCounts.instance.remember(item, eps);
+        ids = [for (final e in eps) e.id];
+      }
+      final reading = item.type == ProviderType.manga ||
+          item.type == ProviderType.novel;
+      if (reading) {
+        for (final id in ids) {
+          batch.add((sourceId: item.sourceId, showId: item.id, chapterId: id));
+        }
+      } else {
+        for (final id in ids) {
+          await resume.setWatched(item.sourceId, item.url, id, watched: read);
+        }
+      }
+    }
+    if (batch.isNotEmpty) {
+      if (read) {
+        await readStore.setReadMany(batch);
+      } else {
+        await readStore.setUnreadMany(batch);
+      }
+    }
+    showGlobalSnack(
+      failed == 0
+          ? (read ? 'Als gelesen markiert' : 'Als ungelesen markiert')
+          : '${items.length - failed} markiert, $failed Quellen nicht erreichbar',
+    );
+  }
+
+  /// The play button on a cover: opens the first unread chapter.
+  Future<void> _continueReading(MediaItem item) async {
+    final eps = await _episodesOf(item);
+    if (!mounted) return;
+    if (eps == null || eps.isEmpty) {
+      showGlobalSnack('Kapitel konnten nicht geladen werden');
+      return;
+    }
+    UnreadCounts.instance.remember(item, eps);
+    // The reader wants the chapters oldest → newest. Sources list them
+    // newest first; with chapter numbers we sort, otherwise reverse.
+    final List<Episode> ordered;
+    if (eps.every((e) => e.number != null)) {
+      final idx = [for (var i = 0; i < eps.length; i++) i]
+        ..sort((a, b) {
+          final c = eps[a].number!.compareTo(eps[b].number!);
+          return c != 0 ? c : b.compareTo(a);
+        });
+      ordered = [for (final i in idx) eps[i]];
+    } else {
+      ordered = eps.reversed.toList();
+    }
+    final read = sl<ReadStore>();
+    final start = ordered.indexWhere(
+      (e) => !read.finished(item.sourceId, item.id, e.id),
+    );
+    if (start < 0) {
+      showGlobalSnack('Alles gelesen');
+      return;
+    }
+    final chapters = ordered;
+    final route = MaterialPageRoute<void>(
+      builder: (_) => item.type == ProviderType.novel
+          ? NovelReaderScreen(
+              sourceId: item.sourceId,
+              showId: item.id,
+              showUrl: item.url,
+              showTitle: item.title,
+              cover: item.cover,
+              chapters: chapters,
+              startIndex: start,
+            )
+          : MangaReaderScreen(
+              sourceId: item.sourceId,
+              showId: item.id,
+              showUrl: item.url,
+              showTitle: item.title,
+              cover: item.cover,
+              chapters: chapters,
+              startIndex: start,
+            ),
+    );
+    await Navigator.of(context).push(route);
   }
 
   /// Search narrows every tab, not just the one on screen — the counts in the
@@ -1896,3 +2196,31 @@ String myListEmptyMessage(AppLocalizations l10n, ContentMode mode) =>
       ContentMode.manga => l10n.mangaYouAddAppearHere,
       ContentMode.novel => l10n.novelsYouAddAppearHere,
     };
+
+
+/// Mihon-style round "continue reading" button on a library cover.
+class _ContinueButton extends StatelessWidget {
+  const _ContinueButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.black.withValues(alpha: 0.6),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.9), width: 1.5),
+          ),
+          child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+        ),
+      ),
+    );
+  }
+}
