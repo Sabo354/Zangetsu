@@ -5,9 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:watch_app/core/hive/safe_box.dart';
 
+import '../di/injector.dart';
 import '../models/episode.dart';
 import '../models/media_item.dart';
 import '../models/provider_info.dart';
+import '../playback/my_list.dart';
+import '../profiles/profile_scope.dart';
+import '../profiles/viewer_profile.dart';
 
 /// One new chapter / episode found in the library.
 class LibraryUpdate {
@@ -17,8 +21,11 @@ class LibraryUpdate {
     required this.episodeTitle,
     required this.number,
     required this.foundAtMs,
+    this.profileId,
   });
 
+  /// Profile whose library the update was found for (null = older rows).
+  final String? profileId;
   final MediaItem item;
   final String episodeId;
   final String episodeTitle;
@@ -46,6 +53,7 @@ class LibraryUpdate {
     'title': episodeTitle,
     'num': number,
     'at': foundAtMs,
+    if (profileId != null) 'pid': profileId,
   };
 
   static LibraryUpdate? fromMap(Map m) {
@@ -58,6 +66,7 @@ class LibraryUpdate {
         episodeTitle: '${m['title'] ?? ''}',
         number: (m['num'] as num?)?.toDouble(),
         foundAtMs: (m['at'] as num?)?.toInt() ?? 0,
+        profileId: m['pid'] as String?,
       );
     } catch (_) {
       return null; // a broken row is skipped, never crashes the screen
@@ -94,7 +103,7 @@ class LibraryUpdates extends ChangeNotifier {
     var i = 0;
     for (final e in added) {
       // Short key (Hive allows 255 chars): time first, so keys sort by age.
-      final id = '${item.sourceId}::${item.id}::${e.id}'.hashCode
+      final id = '$_profileId::${item.sourceId}::${item.id}::${e.id}'.hashCode
           .toUnsigned(32)
           .toRadixString(16);
       final key = '$now|${(i++).toString().padLeft(5, '0')}|$id';
@@ -105,6 +114,7 @@ class LibraryUpdates extends ChangeNotifier {
           episodeTitle: e.title,
           number: e.number,
           foundAtMs: now,
+          profileId: _profileId,
         ).toMap();
       } catch (err) {
         debugPrint('[updates] could not store ${item.title}: $err');
@@ -117,7 +127,8 @@ class LibraryUpdates extends ChangeNotifier {
     final box = _box;
     if (box == null) return;
     await box.putAll(rows);
-    final keys = box.keys.where((k) => k != _lastSeenKey).toList();
+    final keys =
+        box.keys.where((k) => !'$k'.startsWith(_lastSeenKey)).toList();
     if (keys.length > _maxEntries) {
       // Keys start with the timestamp, so sorting them is oldest-first.
       keys.sort((a, b) => '$a'.compareTo('$b'));
@@ -127,6 +138,11 @@ class LibraryUpdates extends ChangeNotifier {
   }
 
   List<LibraryUpdate>? _cache;
+  String? _cachePid;
+
+  static String get _profileId => sl.isRegistered<ViewerProfileStore>()
+      ? sl<ViewerProfileStore>().dataProfileId
+      : kDefaultProfileId;
 
   @override
   void notifyListeners() {
@@ -134,19 +150,37 @@ class LibraryUpdates extends ChangeNotifier {
     super.notifyListeners();
   }
 
-  /// Newest first.
-  List<LibraryUpdate> all() => _cache ??= _load();
+  /// Rows of the active profile. Rows from before profiles were recorded
+  /// count for a profile only when that title is in its library.
+  bool _mine(LibraryUpdate u, String pid) {
+    if (u.profileId != null) return u.profileId == pid;
+    try {
+      return sl<MyListStore>().contains(u.item);
+    } catch (_) {
+      return false;
+    }
+  }
 
-  List<LibraryUpdate> _load() {
+  /// Newest first — only the active profile's updates.
+  List<LibraryUpdate> all() {
+    final pid = _profileId;
+    if (_cache == null || _cachePid != pid) {
+      _cachePid = pid;
+      _cache = _load(pid);
+    }
+    return _cache!;
+  }
+
+  List<LibraryUpdate> _load(String pid) {
     final box = _box;
     if (box == null) return const [];
     final out = <LibraryUpdate>[];
     for (final key in box.keys) {
-      if (key == _lastSeenKey) continue;
+      if ('$key'.startsWith(_lastSeenKey)) continue;
       final raw = box.get(key);
       if (raw == null) continue;
       final u = LibraryUpdate.fromMap(raw);
-      if (u != null) out.add(u);
+      if (u != null && _mine(u, pid)) out.add(u);
     }
     out.sort((a, b) {
       final byTime = b.foundAtMs.compareTo(a.foundAtMs);
@@ -156,8 +190,12 @@ class LibraryUpdates extends ChangeNotifier {
     return out;
   }
 
+  String get _seenKey => '$_lastSeenKey:${_profileId}';
+
   int get _lastSeenMs =>
-      (_box?.get(_lastSeenKey)?['at'] as num?)?.toInt() ?? 0;
+      ((_box?.get(_seenKey) ?? _box?.get(_lastSeenKey))?['at'] as num?)
+          ?.toInt() ??
+      0;
 
   /// How many updates arrived since the screen was last opened (badge).
   int get unseenCount {
@@ -166,14 +204,23 @@ class LibraryUpdates extends ChangeNotifier {
   }
 
   Future<void> markAllSeen() async {
-    await _box?.put(_lastSeenKey, {'at': DateTime.now().millisecondsSinceEpoch});
+    await _box?.put(_seenKey, {'at': DateTime.now().millisecondsSinceEpoch});
     notifyListeners();
   }
 
   Future<void> clear() async {
     final box = _box;
     if (box == null) return;
-    await box.deleteAll(box.keys.where((k) => k != _lastSeenKey).toList());
+    // Only this profile's history.
+    final pid = _profileId;
+    final drop = <dynamic>[];
+    for (final key in box.keys) {
+      if ('$key'.startsWith(_lastSeenKey)) continue;
+      final raw = box.get(key);
+      final u = raw == null ? null : LibraryUpdate.fromMap(raw);
+      if (u == null || _mine(u, pid)) drop.add(key);
+    }
+    await box.deleteAll(drop);
     notifyListeners();
   }
 }
