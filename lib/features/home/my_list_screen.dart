@@ -264,6 +264,32 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     return defaultSortFor(isMyList: isMyList);
   }
 
+  // Sabo: every category of the own list keeps its own sort.
+  String _sortScope(BuildContext context, String viewId) =>
+      '${_selectedKind(context).name}:$viewId';
+
+  ListSort _sortForView(
+    BuildContext context,
+    String viewId, {
+    required bool isMyList,
+  }) {
+    if (!isMyList) return _sortFor(isMyList: false);
+    final chosen = ListSortPrefs.forScope(_sortScope(context, viewId)).$1 ?? _sort;
+    if (chosen != null && optionsFor(isMyList: true).contains(chosen)) {
+      return chosen;
+    }
+    return defaultSortFor(isMyList: true);
+  }
+
+  bool _descForView(
+    BuildContext context,
+    String viewId, {
+    required bool isMyList,
+  }) {
+    if (!isMyList) return _sortDesc;
+    return ListSortPrefs.forScope(_sortScope(context, viewId)).$2 ?? _sortDesc;
+  }
+
   void _onLayoutChanged() {
     if (mounted) setState(() {});
   }
@@ -629,7 +655,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
 
   Widget _libraryOptionsButton(BuildContext context) {
     final isMyList = context.read<TrackerListCubit>().state.isMyList;
-    final active = _sortFor(isMyList: isMyList);
+    final active = _sortForView(context, _selectedTabId, isMyList: isMyList);
+    final activeDesc = _descForView(context, _selectedTabId, isMyList: isMyList);
 
     return MenuAnchor(
       animated: true,
@@ -745,7 +772,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                 : const SizedBox(width: 18),
             trailingIcon: option == active
                 ? Icon(
-                    _sortDesc
+                    activeDesc
                         ? Icons.arrow_downward_rounded
                         : Icons.arrow_upward_rounded,
                     color: AppColors.accent,
@@ -791,6 +818,20 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
 
   void _onLibraryMenuSelected(BuildContext context, ListSort action) {
     final isMyList = context.read<TrackerListCubit>().state.isMyList;
+    if (isMyList) {
+      // Own list: saved for the category on screen only.
+      final viewId = _selectedTabId;
+      final active = _sortForView(context, viewId, isMyList: true);
+      final desc = _descForView(context, viewId, isMyList: true);
+      final newDesc = action == active ? !desc : action != ListSort.title;
+      unawaited(
+        ListSortPrefs.saveScope(_sortScope(context, viewId), action, newDesc)
+            .then((_) {
+          if (mounted) setState(() {});
+        }),
+      );
+      return;
+    }
     final active = _sortFor(isMyList: isMyList);
     setState(() {
       // Same option again flips direction; a new one starts in the familiar
@@ -1594,11 +1635,9 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             .toList();
         // Loads missing / stale chapter & episode lists in the background.
         if (isMyList) UnreadCounts.instance.ensureForEntries(filtered);
-        final shown = sortLibrary(
-          filtered,
-          _sortFor(isMyList: isMyList),
-          _sortDesc,
-        );
+        final viewSort = _sortForView(context, view.id, isMyList: isMyList);
+        final viewDesc = _descForView(context, view.id, isMyList: isMyList);
+        final shown = sortLibrary(filtered, viewSort, viewDesc);
         if (isMyList) _pickable = shown;
         if (shown.isEmpty) {
           return EmptyState(
@@ -1614,7 +1653,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
         // flashing back. Resorting still snaps — the key below remounts the
         // grid, exactly like today's instant grid.
         return AnimatedLibraryGrid<MyListEntry>(
-          key: ValueKey('${view.id}|${_sort?.name}|$_sortDesc'),
+          key: ValueKey('${view.id}|${viewSort.name}|$viewDesc'),
           items: shown,
           keyOf: _entryKey,
           // Bottom: clear the floating dock, which overlays content

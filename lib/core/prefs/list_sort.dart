@@ -1,6 +1,9 @@
 import 'package:hive/hive.dart';
 
 import '../../features/home/cubit/my_list_cubit.dart';
+import '../di/injector.dart';
+import '../profiles/profile_scope.dart';
+import '../profiles/viewer_profile.dart';
 import '../reading/unread_counts.dart';
 
 /// How a library list is ordered.
@@ -152,6 +155,29 @@ class ListSortPrefs {
   }
 
   static bool get descending => (_box?.get(_descKey) as bool?) ?? true;
+
+  /// Sort saved for one list / category (per profile). Nulls = none saved,
+  /// the general one applies.
+  static (ListSort?, bool?) forScope(String scope) {
+    final raw = _box?.get(_scopeKey(scope));
+    if (raw is! Map) return (null, null);
+    ListSort? by;
+    for (final s in ListSort.values) {
+      if (s.name == raw['by']) by = s;
+    }
+    return (by, raw['desc'] as bool?);
+  }
+
+  static Future<void> saveScope(String scope, ListSort by, bool desc) async {
+    await _box?.put(_scopeKey(scope), {'by': by.name, 'desc': desc});
+  }
+
+  static String _scopeKey(String scope) => profileScopedKey(
+    sl.isRegistered<ViewerProfileStore>()
+        ? sl<ViewerProfileStore>().dataProfileId
+        : kDefaultProfileId,
+    'libSort:$scope',
+  );
 
   static Future<void> save(ListSort by, bool desc) async {
     final b = _box;
