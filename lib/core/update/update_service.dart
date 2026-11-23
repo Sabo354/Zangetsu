@@ -44,7 +44,10 @@ class UpdateInfo {
 /// the latest tag to the running build, downloads the matching APK and hands it
 /// to the Android package installer. The repo is public, so no token is needed.
 class UpdateService {
-  static const String _repo = 'Spyou/Zangetsu';
+  // Sabo's fork: update prompts offer HIS builds (Sabo354/Zangetsu
+  // releases, tagged v<version>-sabo.<build>) instead of the original app's,
+  // which would be a different, unrelated app on this device.
+  static const String _repo = 'Sabo354/Zangetsu';
   static const String _latestUrl =
       'https://api.github.com/repos/$_repo/releases/latest';
   static const String _releasesUrl =

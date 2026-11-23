@@ -86,7 +86,8 @@ jobs:
           NUM=${{ github.run_number }}
           echo "name=${BASE}-sabo.${NUM}" >> "$GITHUB_OUTPUT"
           echo "code=$((30000 + NUM))" >> "$GITHUB_OUTPUT"
-          echo "tag=sabo-v${BASE}-${NUM}" >> "$GITHUB_OUTPUT"
+          # Tag = v + Versionsname, damit der In-App-Updater ihn vergleichen kann.
+          echo "tag=v${BASE}-sabo.${NUM}" >> "$GITHUB_OUTPUT"
 
       - name: Build APK
         env:
