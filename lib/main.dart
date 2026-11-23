@@ -200,10 +200,10 @@ Future<void> main() async {
       // pile up and OOM-crash (default is 100 MB; libmpv adds a big native
       // baseline). On-screen images stay full quality; far-off-screen ones reload
       // from the disk cache.
-      PaintingBinding.instance.imageCache.maximumSizeBytes = 80 << 20; // 80 MB
+      PaintingBinding.instance.imageCache.maximumSizeBytes = 200 << 20; // 200 MB (Sabo: keep library covers decoded)
       // Cap the count too — the byte ceiling alone lets lots of small images
       // (cast photos, credits) pile up. 300 is plenty for the visible screens.
-      PaintingBinding.instance.imageCache.maximumSize = 300;
+      PaintingBinding.instance.imageCache.maximumSize = 1200;
       // Fire the list-reveal animations promptly as items scroll in — the
       // detector defaults to a 500ms batch interval, which would blank-flash each
       // card before it reveals.

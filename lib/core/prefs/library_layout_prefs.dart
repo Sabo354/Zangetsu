@@ -49,4 +49,17 @@ class LibraryLayoutPrefs {
     await _box?.put(profileScopedKey(_profileId, _hideAllKey), value);
     changes.value++;
   }
+
+  static const String _tileColsKey = 'libTileColumns';
+
+  /// Tiles per row in the tile view (2–4), per profile.
+  static int get tileColumns {
+    final v = _box?.get(profileScopedKey(_profileId, _tileColsKey));
+    return v is int && v >= 2 && v <= 4 ? v : 2;
+  }
+
+  static Future<void> setTileColumns(int value) async {
+    await _box?.put(profileScopedKey(_profileId, _tileColsKey), value);
+    changes.value++;
+  }
 }

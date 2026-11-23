@@ -15,7 +15,6 @@ import '../../core/anilist/anilist_service.dart';
 import '../../core/playback/category_store.dart';
 import '../../core/playback/playback_prefs.dart';
 import '../../l10n/ui_strings.dart';
-import '../../core/ui/reveal_item.dart';
 import '../../core/ui/global_messenger.dart';
 import '../../core/ui/anilist_custom_lists_sheet.dart';
 import '../../core/prefs/library_layout_prefs.dart';
@@ -1620,9 +1619,10 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             // Keyed by entry: the whole card (image element included) travels
             // to its new slot instead of a fresh card remounting there with
             // a fade-in. findChildIndexCallback on the grid makes the match.
-            return RevealItem(
+            // Sabo: no entrance animation in the library — covers are on
+            // the phone, they should just be there while scrolling.
+            return KeyedSubtree(
               key: ValueKey('cell:${_entryKey(entry)}'),
-              index: i,
               child: _posterCell(
                 entry,
                 slide: slide,

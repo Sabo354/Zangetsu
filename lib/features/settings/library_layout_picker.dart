@@ -54,6 +54,33 @@ Future<void> showLibraryLayoutPicker(BuildContext context) async {
                   : null,
               onTap: () => Navigator.pop(ctx, value),
             ),
+          const Divider(color: AppColors.hairline, height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+            child: Row(
+              children: [
+                Text('Kacheln pro Reihe', style: AppText.body),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: StatefulBuilder(
+              builder: (c, setLocal) => SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 2, label: Text('2')),
+                  ButtonSegment(value: 3, label: Text('3')),
+                  ButtonSegment(value: 4, label: Text('4')),
+                ],
+                selected: {LibraryLayoutPrefs.tileColumns},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) async {
+                  await LibraryLayoutPrefs.setTileColumns(v.first);
+                  setLocal(() {});
+                },
+              ),
+            ),
+          ),
           const SizedBox(height: 8),
         ],
       ),

@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/prefs/library_layout_prefs.dart';
 import '../../core/cache/app_image_cache.dart';
 import '../../core/mihon/mihon_image_provider.dart';
 import '../../core/models/media_item.dart';
@@ -249,10 +250,10 @@ class LibraryTabsState extends State<LibraryTabs>
       // shows them at once instead of loading them again.
       cacheExtent: 3000,
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 14,
-        crossAxisSpacing: 14,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: LibraryLayoutPrefs.tileColumns,
+        mainAxisSpacing: LibraryLayoutPrefs.tileColumns > 2 ? 10 : 14,
+        crossAxisSpacing: LibraryLayoutPrefs.tileColumns > 2 ? 10 : 14,
         childAspectRatio: 3 / 4,
       ),
       itemCount: widget.tabs.length + (widget.onAdd != null ? 1 : 0),
@@ -356,9 +357,9 @@ class _LibraryListTile extends StatelessWidget {
               ),
             ),
             Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
+              left: LibraryLayoutPrefs.tileColumns > 2 ? 8 : 12,
+              right: LibraryLayoutPrefs.tileColumns > 2 ? 8 : 12,
+              bottom: LibraryLayoutPrefs.tileColumns > 2 ? 8 : 12,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -370,7 +371,8 @@ class _LibraryListTile extends StatelessWidget {
                     style: AppText.body.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
-                      fontSize: 16,
+                      fontSize: const [16.0, 16.0, 16.0, 13.0, 11.5][
+                          LibraryLayoutPrefs.tileColumns],
                       height: 1.15,
                     ),
                   ),
@@ -379,6 +381,7 @@ class _LibraryListTile extends StatelessWidget {
                     tab.count == 1 ? '1 Titel' : '${tab.count} Titel',
                     style: AppText.caption.copyWith(
                       color: Colors.white.withValues(alpha: 0.8),
+                      fontSize: LibraryLayoutPrefs.tileColumns > 2 ? 10.5 : null,
                     ),
                   ),
                 ],
