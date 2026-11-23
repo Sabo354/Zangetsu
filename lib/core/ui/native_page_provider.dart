@@ -31,7 +31,7 @@ ImageProvider? nativePageProvider(String url, Map<String, String>? headers) {
   final mihon = headers?['x-mihon-src'];
   if (mihon != null) {
     final id = int.tryParse(mihon);
-    if (id != null) return MihonImage(id, url);
+    if (id != null) return MihonImage(id, url, persist: false);
   }
   return null;
 }
