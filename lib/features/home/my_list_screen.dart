@@ -666,6 +666,24 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
             ),
             child: const Text('Bibliothek aktualisieren'),
           ),
+        MenuItemButton(
+          onPressed: () => unawaited(
+            LibraryLayoutPrefs.setHideAll(!LibraryLayoutPrefs.hideAll),
+          ),
+          style: _libraryMenuItemStyle(),
+          leadingIcon: Icon(
+            LibraryLayoutPrefs.hideAll
+                ? Icons.visibility_rounded
+                : Icons.visibility_off_rounded,
+            size: 18,
+            color: AppColors.textSecondary,
+          ),
+          child: Text(
+            LibraryLayoutPrefs.hideAll
+                ? '„Alle“ wieder anzeigen'
+                : '„Alle“ ausblenden',
+          ),
+        ),
         // Tracker lists only: the own list carries no watched counts,
         // so there is nothing to count down and the toggle hides itself.
         if (!isMyList)
@@ -1448,7 +1466,9 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     // One entry per tab, in the order the row draws them. Each carries its own
     // test rather than a shared filter field, so the pages can live side by
     // side in a TabBarView and be swiped between.
+    final hideAll = LibraryLayoutPrefs.hideAll;
     final views = <LibraryTab>[
+      if (!hideAll)
       LibraryTab(
         id: 'all',
         label: context.l10n.all,
@@ -1496,6 +1516,17 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     // The + creates a list on the AniList account; on My List it makes a local
     // category. Same gesture, different home. Parked beside the row rather
     // than inside it so it can't be swiped to.
+    // "Alle" hidden but nothing else to show → keep it after all.
+    if (views.isEmpty) {
+      views.add(
+        LibraryTab(
+          id: 'all',
+          label: context.l10n.all,
+          count: modeEntries.length,
+          test: (_) => true,
+        ),
+      );
+    }
     final tracker = trackerState.tracker;
     final onAdd = isMyList
         ? (_cats != null ? () => _createCategory(context) : null)

@@ -38,4 +38,15 @@ class LibraryLayoutPrefs {
     await _box?.put(_scopedKey, value.name);
     changes.value++;
   }
+
+  static const String _hideAllKey = 'libHideAll';
+
+  /// Whether the active profile hides the "Alle" list (tab / tile).
+  static bool get hideAll =>
+      _box?.get(profileScopedKey(_profileId, _hideAllKey)) == true;
+
+  static Future<void> setHideAll(bool value) async {
+    await _box?.put(profileScopedKey(_profileId, _hideAllKey), value);
+    changes.value++;
+  }
 }

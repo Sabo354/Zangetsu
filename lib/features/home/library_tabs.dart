@@ -245,6 +245,9 @@ class LibraryTabsState extends State<LibraryTabs>
       );
     }
     return GridView.builder(
+      // Keep the tiles above / below the screen built, so scrolling back up
+      // shows them at once instead of loading them again.
+      cacheExtent: 3000,
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 220,
@@ -256,13 +259,16 @@ class LibraryTabsState extends State<LibraryTabs>
       itemBuilder: (context, i) {
         if (i == widget.tabs.length) return _addTile();
         final t = widget.tabs[i];
-        return _LibraryListTile(
+        return _KeepTile(
+          key: ValueKey(t.id),
+          child: _LibraryListTile(
           tab: t,
           covers: widget.coversFor?.call(t) ?? const [],
           onTap: () {
             setState(() => _openTileId = t.id);
             if (t.id != widget.selectedId) widget.onSelected(t.id);
           },
+        ),
         );
       },
     );
@@ -415,7 +421,11 @@ class _LibraryListTile extends StatelessWidget {
     final mihonSrc = m.coverHeaders?['x-mihon-src'];
     final ImageProvider image = mihonSrc != null && int.tryParse(mihonSrc) != null
         // Mihon covers go through the extension (headers / Cloudflare cookie).
-        ? MihonImage(int.parse(mihonSrc), url)
+        // Decoded small (a quarter of a tile): full-size covers are ~5 MB
+        // each, so a handful of collages filled the image cache and tiles
+        // further up had to reload every time they scrolled back in.
+        ? ResizeImage(MihonImage(int.parse(mihonSrc), url), width: 300,
+            policy: ResizeImagePolicy.fit)
         : CachedNetworkImageProvider(
             url,
             headers: m.coverHeaders,
@@ -430,5 +440,25 @@ class _LibraryListTile extends StatelessWidget {
       gaplessPlayback: true,
       errorBuilder: (_, _, _) => const SizedBox.expand(),
     );
+  }
+}
+
+
+/// Keeps a tile alive when it scrolls out of view (there are only a few dozen).
+class _KeepTile extends StatefulWidget {
+  const _KeepTile({super.key, required this.child});
+  final Widget child;
+  @override
+  State<_KeepTile> createState() => _KeepTileState();
+}
+
+class _KeepTileState extends State<_KeepTile>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

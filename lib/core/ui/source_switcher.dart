@@ -18,6 +18,7 @@ import '../mode/content_mode_cubit.dart';
 import '../playback/pinned_sources.dart';
 import '../models/provider_info.dart';
 import '../playback/playback_prefs.dart';
+import '../profiles/profile_source_filter.dart';
 import '../provider/cloudstream_provider.dart';
 import '../provider/provider_manager.dart';
 import '../provider/provider_registry.dart';
@@ -363,6 +364,14 @@ SourceBuckets categorizedSources() {
   movies.sort(byRowLabel);
   manga.sort(byRowLabel);
   novel.sort(byRowLabel);
+
+  // Sabo: sources switched off for the active profile are not listed anywhere.
+  final pf = ProfileSourceFilter.instance;
+  if (pf.hasHidden) {
+    for (final l in [anime, movies, nsfw, manga, novel]) {
+      l.removeWhere((r) => pf.isHidden(r.id));
+    }
+  }
 
   return (anime: anime, movies: movies, nsfw: nsfw, manga: manga, novel: novel);
 }
