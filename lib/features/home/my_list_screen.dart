@@ -656,8 +656,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
 
   Widget _libraryOptionsButton(BuildContext context) {
     final isMyList = context.read<TrackerListCubit>().state.isMyList;
-    final active = _sortForView(context, _selectedTabId, isMyList: isMyList);
-    final activeDesc = _descForView(context, _selectedTabId, isMyList: isMyList);
+    final active = _sortForView(context, _shownTab, isMyList: isMyList);
+    final activeDesc = _descForView(context, _shownTab, isMyList: isMyList);
 
     return MenuAnchor(
       animated: true,
@@ -729,10 +729,10 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                 : '„Alle“ ausblenden',
           ),
         ),
-        if (isMyList && _categoryFilter != null)
+        if (isMyList && _shownTab.startsWith('cat:'))
           MenuItemButton(
             onPressed: () {
-              final id = _categoryFilter;
+              final id = _shownTab.substring(4);
               final c = sl<CategoryStore>()
                   .all()
                   .where((c) => c.id == id)
@@ -839,7 +839,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     final isMyList = context.read<TrackerListCubit>().state.isMyList;
     if (isMyList) {
       // Own list: saved for the category on screen only.
-      final viewId = _selectedTabId;
+      final viewId = _shownTab;
       final active = _sortForView(context, viewId, isMyList: true);
       final desc = _descForView(context, viewId, isMyList: true);
       final newDesc = action == active ? !desc : action != ListSort.title;
@@ -1686,6 +1686,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       (view) => view.id == _selectedTabId,
       orElse: () => views.first,
     );
+    // The tab actually on screen ("Alle" hidden → the first category).
+    _shownTabId = selectedView.id;
     final shuffleCandidates = modeEntries
         .where(
           (entry) =>
@@ -2165,6 +2167,11 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     return e.item.title.toLowerCase().contains(q) ||
         (e.item.englishTitle?.toLowerCase() ?? '').contains(q);
   }
+
+  /// Tab really shown (may differ from [_selectedTabId] when "Alle" is
+  /// hidden and nothing was picked yet).
+  String? _shownTabId;
+  String get _shownTab => _shownTabId ?? _selectedTabId;
 
   /// The selection, in the same id space the tabs use.
   String get _selectedTabId {
