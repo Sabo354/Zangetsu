@@ -1,3 +1,4 @@
+import '../../core/ui/detail_prefs.dart';
 import '../../core/prefs/library_layout_prefs.dart';
 import '../../core/profiles/profile_source_filter.dart';
 import '../sources/profile_sources_screen.dart';
@@ -1146,6 +1147,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       onTap: () => _push(const AppearanceScreen()),
     ),
     // Library as tabs or tiles, per profile.
+    _SettingsEntry(
+      section: SettingsSection.interface,
+      group: 'Look',
+      icon: Icons.menu_book_rounded,
+      title: 'Manga: neueste Kapitel zuerst',
+      subtitle: 'Kapitelliste beginnt oben mit dem neuesten Kapitel',
+      keywords: 'kapitel reihenfolge neueste zuerst sortierung chapter order newest',
+      trailing: _value(DetailPrefs.reverseChaptersDefault ? 'An' : 'Aus'),
+      onTap: () async {
+        await DetailPrefs.setReverseChaptersDefault(
+          !DetailPrefs.reverseChaptersDefault,
+        );
+        if (mounted) setState(() {});
+      },
+    ),
     _SettingsEntry(
       section: SettingsSection.interface,
       group: 'Look',

@@ -571,11 +571,20 @@ class _AppearanceScreenState extends State<AppearanceScreen> {
             children: [
               _switchTile(
                 icon: Icons.swap_vert_rounded,
-                title: 'Reverse episode list always on',
+                title: 'Anime: neueste Folgen zuerst',
                 subtitle:
                     'Every detail screen opens newest-first; the list button still flips it for that visit',
                 value: DetailPrefs.reverseEpisodesDefault,
                 onChanged: DetailPrefs.setReverseEpisodesDefault,
+                subtitleMaxLines: null,
+              ),
+              _switchTile(
+                icon: Icons.menu_book_rounded,
+                title: 'Manga: neueste Kapitel zuerst',
+                subtitle:
+                    'Die Kapitelliste beginnt mit dem neuesten Kapitel; der Listen-Knopf dreht sie für diesen Besuch um',
+                value: DetailPrefs.reverseChaptersDefault,
+                onChanged: DetailPrefs.setReverseChaptersDefault,
                 subtitleMaxLines: null,
               ),
             ],

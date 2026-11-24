@@ -10,6 +10,10 @@ class DetailPrefs {
 
   static bool reverseEpisodesDefault = false;
 
+  /// Manga / novels: chapter list starts newest-first (Sabo: default on).
+  static const String _reverseChKey = 'reverseChaptersDefault';
+  static bool reverseChaptersDefault = true;
+
   static Future<Box> _open() async => Hive.isBoxOpen(boxName)
       ? Hive.box(boxName)
       : await openBoxSafely(boxName);
@@ -17,6 +21,12 @@ class DetailPrefs {
   static Future<void> init() async {
     final box = await _open();
     reverseEpisodesDefault = box.get(_reverseKey, defaultValue: false) as bool;
+    reverseChaptersDefault = box.get(_reverseChKey, defaultValue: true) as bool;
+  }
+
+  static Future<void> setReverseChaptersDefault(bool value) async {
+    reverseChaptersDefault = value;
+    await (await _open()).put(_reverseChKey, value);
   }
 
   static Future<void> setReverseEpisodesDefault(bool value) async {
