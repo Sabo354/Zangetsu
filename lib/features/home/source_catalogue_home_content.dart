@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:hive/hive.dart';
+
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
@@ -107,6 +109,56 @@ class SourceCatalogueHomeContentState
   Timer? _sectionUpdateTimer;
   List<HomeSection>? _pendingSections;
 
+  // Sabo: "Alle Quellen" shows every installed source, also ones the app
+  // doesn't classify as this mode. Remembered on the device.
+  static const String _showAllKey = 'sourceCatalogueShowAll';
+  bool _showAll = Hive.isBoxOpen('ui_prefs') &&
+      Hive.box('ui_prefs').get(_showAllKey) == true;
+  Timer? _waitForSources;
+  int _waitTicks = 0;
+
+  Future<void> _setShowAll(bool v) async {
+    if (Hive.isBoxOpen('ui_prefs')) {
+      await Hive.box('ui_prefs').put(_showAllKey, v);
+    }
+    if (!mounted) return;
+    setState(() {
+      _showAll = v;
+      _sources = _sourcesForMode();
+      final keep = _sources.any((s) => s.id == _sourceId);
+      if (!keep) {
+        _generation++;
+        _sourceId = _chooseSourceId(_sourceId);
+        _sections = null;
+      }
+    });
+    _rememberSource();
+    if (_sourceId != null && _sections == null) _load(reset: true);
+    _ensureWaiting();
+  }
+
+  /// Extensions finish loading after Home is built (on TV especially), so an
+  /// empty list is re-checked for a while instead of staying "no sources".
+  void _ensureWaiting() {
+    if (_sources.isNotEmpty || _waitForSources != null) return;
+    _waitTicks = 0;
+    _waitForSources = Timer.periodic(const Duration(seconds: 2), (t) {
+      _waitTicks++;
+      final next = _sourcesForMode();
+      if (!mounted || next.isNotEmpty || _waitTicks > 45) {
+        t.cancel();
+        _waitForSources = null;
+      }
+      if (!mounted || next.isEmpty) return;
+      setState(() {
+        _sources = next;
+        _sourceId = _chooseSourceId(widget.initialSourceId);
+      });
+      _rememberSource();
+      if (_sourceId != null) _load(reset: true);
+    });
+  }
+
   ContentMode _modeFor(SourceCatalogueHomeContent widget) =>
       widget.mode ??
       (sl.isRegistered<ContentModeCubit>()
@@ -128,7 +180,7 @@ class SourceCatalogueHomeContentState
     _sources = _sourcesForMode();
     _sourceId = _chooseSourceId(widget.initialSourceId);
     _rememberSource();
-    if (_sourceId != null) _load(reset: true);
+    if (_sourceId != null) _load(reset: true);    _ensureWaiting();
   }
 
   @override
@@ -211,6 +263,15 @@ class SourceCatalogueHomeContentState
     if (sourceId != null) widget.onSourceSelected?.call(sourceId);
   }
 
+  /// Installed sources this mode's filter leaves out.
+  int get _hiddenByMode {
+    if (_showAll) return 0;
+    final all = _repository.loadedSources
+        .where((s) => s.id != 'stremio')
+        .length;
+    return all - _sources.where((s) => s.id != 'stremio').length;
+  }
+
   List<({String id, String name})> _sourcesForMode() => _repository
       .loadedSources
       .where((source) {
@@ -218,6 +279,7 @@ class SourceCatalogueHomeContentState
         // Stremio has its own catalogue toggle; never select it as a fallback.
         if (widget.initialSourceId == 'stremio') return id == 'stremio';
         if (id == 'stremio') return false;
+        if (_showAll) return true;
         return sourceIdMatchesContentMode(id, _mode);
       })
       .toList(growable: false);
@@ -410,6 +472,7 @@ class SourceCatalogueHomeContentState
 
   @override
   void dispose() {
+    _waitForSources?.cancel();
     _sectionUpdateTimer?.cancel();
     widget.controller?._detach(_controllerOwner);
     _stremioManager?.removeListener(_onStremioChanged);
@@ -455,16 +518,38 @@ class SourceCatalogueHomeContentState
     children: [
       if (_sources.isEmpty && _sourceId == 'stremio')
         _stremioEmptyState()
-      else if (_sources.isEmpty)
+      else if (_sources.isEmpty) ...[
         _emptyState(
           icon: Icons.extension_off_rounded,
-          title: 'No sources available',
-          message: 'Install a source to browse its catalogue here.',
-          action: _openSources,
-          actionLabel: 'Browse sources',
-        )
-      else ...[
-        if (widget.showSourcePicker) _sourcePicker(),
+          title: _waitForSources != null
+              ? 'Quellen werden geladen …'
+              : 'Keine passenden Quellen',
+          message: _hiddenByMode > 0
+              ? '$_hiddenByMode installierte Quellen werden hier nicht als '
+                    'passend erkannt. Mit „Alle Quellen anzeigen“ kannst du '
+                    'sie trotzdem durchsuchen.'
+              : 'Auf diesem Gerät ist noch keine Quelle geladen. Installiere '
+                    'sie unter Quellen (pro Gerät, auch auf dem Fernseher).',
+          action: _hiddenByMode > 0 ? () => _setShowAll(true) : _openSources,
+          actionLabel: _hiddenByMode > 0
+              ? 'Alle Quellen anzeigen'
+              : 'Quellen öffnen',
+        ),
+      ] else ...[
+        if (widget.showSourcePicker || _showAll)
+          _sourcePicker()
+        else
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              child: TextButton.icon(
+                onPressed: () => _setShowAll(true),
+                icon: const Icon(Icons.travel_explore_rounded, size: 18),
+                label: const Text('Alle Quellen anzeigen'),
+              ),
+            ),
+          ),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 150),
           switchInCurve: Curves.easeOut,
@@ -599,6 +684,15 @@ class SourceCatalogueHomeContentState
                   onChanged: _loading ? null : _selectSource,
                 ),
               ),
+            ),
+            const SizedBox(width: 8),
+            FilterChip(
+              label: const Text('Alle'),
+              tooltip: 'Alle installierten Quellen zeigen',
+              selected: _showAll,
+              showCheckmark: false,
+              selectedColor: AppColors.accent.withValues(alpha: 0.25),
+              onSelected: (v) => _setShowAll(v),
             ),
           ],
         ),
