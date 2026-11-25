@@ -255,6 +255,17 @@ class _MyListScreenTvState extends State<MyListScreenTv> {
     required void Function(MyListEntry) onLongPress,
     List<String> customListNames = const [],
   }) {
+    // Sabo: the TV only has the streaming side (Anime ↔ Movie·TV), so the
+    // AniList / MAL list there shows anime only — no manga / novels mixed in.
+    final readingMode = sl.isRegistered<ContentModeCubit>() &&
+        sl<ContentModeCubit>().state.isReading;
+    entries = [
+      for (final e in entries)
+        if (readingMode ==
+            (e.item.type == ProviderType.manga ||
+                e.item.type == ProviderType.novel))
+          e,
+    ];
     final statuses = presentLibraryStatuses(entries);
     final customLists = <String>[...customListNames];
     if (!isMyList) {
