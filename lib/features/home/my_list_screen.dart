@@ -1112,7 +1112,10 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                 context,
                 MaterialPageRoute(
                   builder: (_) =>
-                      LibraryUpdatesScreen(startOnReading: _kind.isReading),
+                      LibraryUpdatesScreen(
+                        startOnReading: _kind.isReading,
+                        onUpdateAll: () => _updateLibraryNow(context),
+                      ),
                 ),
               ),
               active: unseen > 0,
@@ -1424,12 +1427,29 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       await sl<MyListStore>().pullFromCloud();
     } catch (_) {}
     if (!context.mounted) return;
-    unawaited(_updateLibraryNow(context));
+    // Sabo: pulling inside a category checks only that category; on the
+    // tile overview / "Alle" it checks everything.
+    final tiles = LibraryLayoutPrefs.layout == LibraryLayout.tiles &&
+        _query.trim().isEmpty;
+    final view = _shownView;
+    final onlyThis =
+        view != null && view.id != 'all' && (!tiles || _tileOpen);
+    unawaited(
+      _updateLibraryNow(
+        context,
+        only: onlyThis ? view.test : null,
+        label: onlyThis ? view.label : null,
+      ),
+    );
   }
 
   /// Mihon-style "Update library" for the kind on screen (manga, anime, …):
   /// re-reads every title's chapter / episode list and reports what's new.
-  Future<void> _updateLibraryNow(BuildContext context) async {
+  Future<void> _updateLibraryNow(
+    BuildContext context, {
+    bool Function(MyListEntry)? only,
+    String? label,
+  }) async {
     final counts = UnreadCounts.instance;
     if (counts.isUpdating) {
       showGlobalSnack('Bibliothek wird schon aktualisiert …');
@@ -1439,6 +1459,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     final items = <MediaItem>[];
     for (final e in context.read<MyListCubit>().state) {
       if (!kind.matchesProvider(e.item.type)) continue;
+      if (only != null && !only(e)) continue;
       if (e is SeriesCardEntry) {
         items.addAll(e.memberItems);
       } else {
@@ -1446,9 +1467,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       }
     }
     final reading = kind.isReading;
-    showGlobalSnack(
-      'Bibliothek wird aktualisiert (${items.length} Titel) …',
-    );
+    final what = label == null ? 'Bibliothek' : '„$label“';
+    showGlobalSnack('$what wird aktualisiert (${items.length} Titel) …');
     final result = await counts.updateNow(items);
     if (result == null) return;
     final unit = reading
@@ -1462,8 +1482,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
         : ' · ${result.failed} nicht erreichbar';
     showGlobalSnack(
       result.newItems == 0
-          ? 'Bibliothek aktualisiert: $news$failed'
-          : 'Bibliothek aktualisiert: $news$failed · siehe Neuigkeiten',
+          ? '$what aktualisiert: $news$failed'
+          : '$what aktualisiert: $news$failed · siehe Neuigkeiten',
     );
   }
 
@@ -1688,6 +1708,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
     );
     // The tab actually on screen ("Alle" hidden → the first category).
     _shownTabId = selectedView.id;
+    _shownView = selectedView;
     final shuffleCandidates = modeEntries
         .where(
           (entry) =>
@@ -1707,6 +1728,7 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
       tabs: views,
       selectedId: _selectedTabId,
       onSelected: _selectTab,
+      onOpenTileChanged: (id) => _tileOpen = id != null,
       onAdd: onAdd,
       // Tiles (Settings → Appearance, per profile). While searching, the
       // tab row stays so results are visible across every list.
@@ -2171,6 +2193,8 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
   /// Tab really shown (may differ from [_selectedTabId] when "Alle" is
   /// hidden and nothing was picked yet).
   String? _shownTabId;
+  LibraryTab? _shownView;
+  bool _tileOpen = false;
   String get _shownTab => _shownTabId ?? _selectedTabId;
 
   /// The selection, in the same id space the tabs use.

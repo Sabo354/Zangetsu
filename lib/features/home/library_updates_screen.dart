@@ -7,6 +7,7 @@ import '../../core/cache/app_image_cache.dart';
 import '../../core/di/injector.dart';
 import '../../core/playback/resume_store.dart';
 import '../../core/reading/library_updates.dart';
+import '../../core/reading/unread_counts.dart';
 import '../../core/reading/read_store.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
@@ -17,7 +18,14 @@ enum _UpdatesFilter { all, reading, video }
 /// "Neuigkeiten": every new chapter / episode the library found, newest
 /// first and grouped by day — like the Updates tab in Mihon / Komikku.
 class LibraryUpdatesScreen extends StatefulWidget {
-  const LibraryUpdatesScreen({super.key, this.startOnReading = true});
+  const LibraryUpdatesScreen({
+    super.key,
+    this.startOnReading = true,
+    this.onUpdateAll,
+  });
+
+  /// Checks the whole library (all categories) for new chapters.
+  final Future<void> Function()? onUpdateAll;
 
   /// Opens on the manga side when coming from the manga library.
   final bool startOnReading;
@@ -110,7 +118,27 @@ class _LibraryUpdatesScreenState extends State<LibraryUpdatesScreen> {
         backgroundColor: AppColors.bg,
         surfaceTintColor: Colors.transparent,
         title: const Text('Neuigkeiten'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(3),
+          child: ValueListenableBuilder<double?>(
+            valueListenable: UnreadCounts.instance.updateProgress,
+            builder: (context, p, _) => p == null
+                ? const SizedBox(height: 3)
+                : LinearProgressIndicator(
+                    value: p,
+                    minHeight: 3,
+                    color: AppColors.accent,
+                    backgroundColor: AppColors.surface2,
+                  ),
+          ),
+        ),
         actions: [
+          if (widget.onUpdateAll != null)
+            IconButton(
+              tooltip: 'Alles aktualisieren',
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: () => widget.onUpdateAll!(),
+            ),
           IconButton(
             tooltip: 'Verlauf leeren',
             icon: const Icon(Icons.delete_sweep_outlined),
@@ -118,7 +146,22 @@ class _LibraryUpdatesScreenState extends State<LibraryUpdatesScreen> {
           ),
         ],
       ),
-      body: ListenableBuilder(
+      body: widget.onUpdateAll == null
+          ? _body()
+          : RefreshIndicator(
+              color: AppColors.accent,
+              backgroundColor: AppColors.surface,
+              notificationPredicate: (n) => n.metrics.axis == Axis.vertical,
+              onRefresh: () async {
+                unawaited(widget.onUpdateAll!());
+              },
+              child: _body(),
+            ),
+    );
+  }
+
+  Widget _body() {
+    return ListenableBuilder(
         listenable: LibraryUpdates.instance,
         builder: (context, _) {
           final all = LibraryUpdates.instance.all();
@@ -184,8 +227,7 @@ class _LibraryUpdatesScreenState extends State<LibraryUpdatesScreen> {
             ],
           );
         },
-      ),
-    );
+      );
   }
 
   Widget _chip(String label, _UpdatesFilter value) {

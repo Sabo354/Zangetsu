@@ -45,6 +45,7 @@ class LibraryTabs extends StatefulWidget {
     required this.tabs,
     required this.selectedId,
     required this.onSelected,
+    this.onOpenTileChanged,
     required this.bodyFor,
     this.onAdd,
     this.tiled = false,
@@ -61,6 +62,9 @@ class LibraryTabs extends StatefulWidget {
   final List<LibraryTab> tabs;
   final String selectedId;
   final ValueChanged<String> onSelected;
+
+  /// Tile view: called with the opened tile's id, or null back on the tiles.
+  final ValueChanged<String?>? onOpenTileChanged;
   final Widget Function(LibraryTab) bodyFor;
 
   /// Pinned to the right of the row rather than being its last item: it is an
@@ -118,6 +122,11 @@ class LibraryTabsState extends State<LibraryTabs>
 
   /// Tile layout: the list that is open, or null for the tile overview.
   String? _openTileId;
+
+  void _setOpenTile(String? id) {
+    setState(() => _openTileId = id);
+    widget.onOpenTileChanged?.call(id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -199,7 +208,7 @@ class LibraryTabsState extends State<LibraryTabs>
         // Back closes the list and returns to the tiles, not the app.
         canPop: false,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) setState(() => _openTileId = null);
+          if (!didPop) _setOpenTile(null);
         },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,7 +220,7 @@ class LibraryTabsState extends State<LibraryTabs>
                   IconButton(
                     icon: const Icon(Icons.arrow_back_rounded, size: 20),
                     color: AppColors.textSecondary,
-                    onPressed: () => setState(() => _openTileId = null),
+                    onPressed: () => _setOpenTile(null),
                   ),
                   Expanded(
                     child: GestureDetector(
@@ -266,7 +275,7 @@ class LibraryTabsState extends State<LibraryTabs>
           tab: t,
           covers: widget.coversFor?.call(t) ?? const [],
           onTap: () {
-            setState(() => _openTileId = t.id);
+            _setOpenTile(t.id);
             if (t.id != widget.selectedId) widget.onSelected(t.id);
           },
         ),
