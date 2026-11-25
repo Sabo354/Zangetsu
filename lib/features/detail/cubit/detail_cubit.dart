@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/repository/source_repository.dart';
 import '../../../core/cache/detail_disk_cache.dart';
 import '../../../core/mihon/mihon_image_provider.dart';
 import '../../../core/di/injector.dart';
@@ -801,8 +802,9 @@ String statusLabel(MediaStatus status) {
 /// E.g. "S1 E3 - Attack" gives 1; "Episode 5" gives null.
 int? parseSeason(String title) {
   final m = RegExp(r'^S(\d+)').firstMatch(title.trim());
-  if (m == null) return null;
-  return int.tryParse(m.group(1)!);
+  if (m != null) return int.tryParse(m.group(1)!);
+  // Sabo: "Staffel 3 Folge 1", "Season 2 Episode 4", "S01E02" anywhere.
+  return parseSeasonEpisode(title)?.season;
 }
 
 /// The season an episode belongs to: the source-reported field when present

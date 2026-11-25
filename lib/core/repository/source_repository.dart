@@ -1336,7 +1336,45 @@ extension SourceNameTag on SourceRepository {
 /// untouched when already ordered. Unnumbered lists keep arrival order:
 /// direction is unprovable there, and flipping blindly would break
 /// oldest-first sources. ponytail: one funnel, not one fix per provider.
-List<Episode> normalizeEpisodeOrder(List<Episode> eps) {
+// "Staffel 3 Folge 1", "Season 2 Episode 5", "Saison 1 Épisode 3", "S01E02",
+// "S1 - E2". Only explicit season markers — chapter titles ("Vol.1 Ch.2")
+// never match.
+final RegExp _seasonEpWords = RegExp(
+  r'\b(?:staffel|season|saison|temporada|stagione)\s*(\d{1,3})\b'
+  r'.{0,15}?\b(?:folge|episode|episodio|épisode|ep\.?|e)\s*(\d{1,4}(?:[.,]\d+)?)',
+  caseSensitive: false,
+);
+final RegExp _seasonEpShort = RegExp(
+  r'\bS(\d{1,3})\s*[-_.]?\s*E(\d{1,4}(?:\.\d+)?)\b',
+  caseSensitive: false,
+);
+
+/// Season + episode read from an episode title, or null.
+({int season, double episode})? parseSeasonEpisode(String title) {
+  final m = _seasonEpWords.firstMatch(title) ?? _seasonEpShort.firstMatch(title);
+  if (m == null) return null;
+  final s = int.tryParse(m.group(1)!);
+  final e = double.tryParse(m.group(2)!.replaceAll(',', '.'));
+  if (s == null || e == null) return null;
+  return (season: s, episode: e);
+}
+
+/// Sources that don't report seasons but name them in the title ("Staffel 3
+/// Folge 1") get season + episode number filled in from it — then the list
+/// sorts S1 E1, E2 … S2 E1 …, the season picker appears and trackers count
+/// per season. Only when EVERY episode parses, so mixed lists stay as given.
+List<Episode> _seasonsFromTitles(List<Episode> eps) {
+  if (eps.length < 2 || eps.any((e) => e.season != null)) return eps;
+  final parsed = [for (final e in eps) parseSeasonEpisode(e.title)];
+  if (parsed.any((p) => p == null)) return eps;
+  return [
+    for (var i = 0; i < eps.length; i++)
+      eps[i].copyWith(season: parsed[i]!.season, number: parsed[i]!.episode),
+  ];
+}
+
+List<Episode> normalizeEpisodeOrder(List<Episode> input) {
+  final eps = _seasonsFromTitles(input);
   if (eps.length < 2 || eps.any((e) => e.number == null)) return eps;
   var ordered = true;
   for (var i = 1; i < eps.length; i++) {
@@ -1350,10 +1388,16 @@ List<Episode> normalizeEpisodeOrder(List<Episode> eps) {
     }
   }
   if (ordered) return eps;
-  return [...eps]..sort((a, b) {
-    final s = (a.season ?? 0).compareTo(b.season ?? 0);
-    return s != 0 ? s : a.number!.compareTo(b.number!);
-  });
+  // Dart's sort isn't stable: equal keys (same number, no season) came out
+  // shuffled — S3E1, S2E1, S1E1, S3E2 … Ties keep the source's order.
+  final idx = [for (var i = 0; i < eps.length; i++) i]
+    ..sort((a, b) {
+      final s = (eps[a].season ?? 0).compareTo(eps[b].season ?? 0);
+      if (s != 0) return s;
+      final n = eps[a].number!.compareTo(eps[b].number!);
+      return n != 0 ? n : a.compareTo(b);
+    });
+  return [for (final i in idx) eps[i]];
 }
 
 /// One chapter's page list plus when it was fetched — see
