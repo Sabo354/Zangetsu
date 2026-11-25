@@ -94,12 +94,12 @@ jobs:
           ZANGETSU_NO_DISCORD: "1"
           ZANGETSU_NIGHTLY: "1"
         run: >
-          flutter build apk --debug
+          flutter build apk --release
           --build-name=${{ steps.ver.outputs.name }}
           --build-number=${{ steps.ver.outputs.code }}
 
       - name: Rename APK
-        run: cp build/app/outputs/flutter-apk/app-debug.apk zangetsu-sabo.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk zangetsu-sabo.apk
 
       # Ein Release pro Version (für Obtainium) …
       - name: Publish versioned release

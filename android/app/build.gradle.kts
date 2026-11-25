@@ -173,6 +173,9 @@ android {
                 signingConfigs.getByName("release")
             else
                 signingConfigs.getByName("debug")
+            // Sabo: release (fast, AOT) builds of the nightly id, so they
+            // install as an update over the earlier debug builds.
+            if (isNightly) applicationIdSuffix = ".nightly"
 
             // Minification stays OFF: CloudStream `.cs3` plugins are external
             // DEX loaded at runtime that link BY NAME against the bundled
