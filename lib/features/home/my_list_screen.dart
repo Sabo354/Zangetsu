@@ -25,6 +25,7 @@ import '../../core/reading/read_store.dart';
 import '../../core/reading/reader_overrides.dart';
 import '../../core/playback/resume_store.dart';
 import '../../core/repository/catalogue_repository.dart';
+import '../migrate/migrate_screen.dart';
 import '../reader/manga_reader_screen.dart';
 import '../reader/novel_reader_screen.dart';
 import '../../core/prefs/list_sort.dart';
@@ -2024,6 +2025,13 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                         if (!before.containsKey(k)) _picked[k] = e;
                       }
                     });
+                  case 'migrate':
+                    final items = <MediaItem>[
+                      for (final e in _picked.values)
+                        if (e is SeriesCardEntry) ...e.memberItems else e.item,
+                    ];
+                    setState(_picked.clear);
+                    unawaited(MigrateScreen.open(context, items));
                   case 'edit':
                     final e = _picked.values.first;
                     final more = _lastOnMore;
@@ -2039,6 +2047,10 @@ class _MyListViewState extends State<_MyListView> with WidgetsBindingObserver {
                 const PopupMenuItem(
                   value: 'unread',
                   child: Text('Alle markierten als ungelesen'),
+                ),
+                const PopupMenuItem(
+                  value: 'migrate',
+                  child: Text('Migrieren (andere Quelle) …'),
                 ),
                 const PopupMenuItem(value: 'all', child: Text('Alle auswählen')),
                 const PopupMenuItem(

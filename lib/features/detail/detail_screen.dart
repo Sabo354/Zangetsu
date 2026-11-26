@@ -211,10 +211,13 @@ String _sourceLabel(
   }
   // Aniyomi sources (ani:<id>) resolve to their extension's display name;
   // otherwise the detail screen would show the raw "ani:4383278740…" id.
-  if (sourceId.startsWith('ani:')) {
+  if (sourceId.startsWith('ani:') ||
+      sourceId.startsWith('mihon:') ||
+      sourceId.startsWith('lnr:')) {
     final name = sl<SourceRepository>().displayName(sourceId);
     return name == sourceId ? _friendlySourceId(sourceId) : name;
   }
+
   final js = sl<ProviderRegistry>().entryFor(sourceId);
   if (js != null) {
     final name = js.displayName.isNotEmpty ? js.displayName : js.name;
@@ -230,7 +233,10 @@ String _sourceLabel(
         : sl<CloudStreamManager>().repoNameForSourceId(sourceId);
     return repo != null ? '${cs.displayName} · $repo' : cs.displayName;
   }
-  return cs?.displayName ?? _friendlySourceId(sourceId);
+  if (cs != null) return cs.displayName;
+  // Sabo: any other extension the repository knows by name (Mangayomi …).
+  final known = sl<SourceRepository>().displayName(sourceId);
+  return known != sourceId ? known : _friendlySourceId(sourceId);
 }
 
 /// Short repo label from a manifest URL (GitHub repo name, else owner, else
